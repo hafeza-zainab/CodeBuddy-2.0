@@ -5,7 +5,7 @@ modules:
       resolver:
         function: resolver
       render: native
-      title: CodeBuddy-forge
+      title: CodeBuddy 2.0
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
   function:
     - key: resolver
@@ -19,3 +19,9 @@ app:
     memoryMB: 256
     architecture: arm64
   id: ari:cloud:ecosystem::app/fac8a6a6-0163-460c-ba90-8581b40d9018
+permissions:
+  external:
+    fetch:
+      backend:
+        - https://generativelanguage.googleapis.com
+        - https://api.github.com

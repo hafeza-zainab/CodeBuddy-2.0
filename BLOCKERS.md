@@ -1,10 +1,7 @@
 ## Current blockers
 
-- `forge lint` could not complete because the Forge CLI reports that this machine is not logged in. Run `forge login`, then rerun manifest lint. No deploy or install was attempted.
-- Step 3 still needs `generativelanguage.googleapis.com` added to the manifest's backend egress allowlist. The local Gemini request and deterministic fallback are implemented, but current Forge syntax verification and `forge lint` are pending the browser gate and Forge login. The app will need a deploy after the egress change and an install upgrade if Forge requires the permission update.
-- Step 4's GitHub loader and mocked HTTP tests are implemented, but `api.github.com` still needs to be added to that same allowlist. Forge lint and any deployment/install upgrade remain pending Forge login and the required current manifest-syntax check.
-- Dependency installation reported 18 audit findings (5 moderate, 13 high) in the resolved dependency tree. They have not been auto-fixed because doing so could upgrade unrelated Forge/UI dependencies; review the audit before release.
-- Step 5 (panel/resolver wiring) is paused until current Forge UI Kit issue-context and bridge invocation docs can be checked. The existing scaffold module stays intact; do not guess how to read the active issue's description and comments.
-- Step 5b (Rovo action/agent) is paused until current Forge Rovo module docs can be checked. Free-site Rovo availability also remains unverified.
-- Step 6 depends on the issue panel from Step 5. Step 7's real-input demo and under-10-minute setup instructions depend on the completed live panel flow, so finalizing them now would be misleading.
-- Current user gate: do not use browser work until the user reports that the gate is clear. Once clear, verify official Forge docs for the egress and UI/Rovo module syntax, add only the two allowed egress hosts, run `forge login`, then run `forge lint`; record any deploy/install upgrade requirement for the user before considering live external calls enabled.
+- `manifest.yml` now allows backend fetches only to `generativelanguage.googleapis.com` and `api.github.com`, following the current Forge permissions reference. As requested, Forge lint still needs to be run by the user from the authenticated PowerShell environment.
+- Because egress permissions changed, run `forge deploy --non-interactive --e development`, then `forge install --non-interactive --upgrade --site <site-url> --product jira --environment development` after Forge lint passes. No deploy or install was attempted.
+- The panel still needs a manual test in Jira after deployment/upgrade, including a real issue with a trace, a GitHub link, the no-trace state, and template fallback.
+- Rovo Agent/action code is being added using current manifest docs. Whether the demo site exposes installed Rovo Agents cannot be verified from this local workspace; check in Jira/Rovo after deployment.
+- Dependency installation reported 18 audit findings (5 moderate, 13 high) in the resolved dependency tree. They have not been auto-fixed because that could upgrade unrelated Forge/UI dependencies; review the audit before release.
