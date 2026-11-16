@@ -16,11 +16,11 @@ This repository started from Forge's Jira issue panel UI Kit scaffold:
 
 The intended runtime path is Jira issue panel → Forge resolver → stack-trace parser → optional public GitHub context → Gemini hint generation with deterministic template fallback → three hints rendered in the panel. Parsing, repository loading, and hint generation will remain separate so they can be tested without a Jira site or external network calls.
 
-The Jira panel and resolver are still the hello-world scaffold. The TypeScript parser is implemented and covered by tests; follow [PLAN.md](PLAN.md) for the remaining implementation status and [BLOCKERS.md](BLOCKERS.md) for work that needs account access or a user action.
+The Jira panel and resolver are still the hello-world scaffold. The TypeScript parser and hint engine are implemented and covered by tests, including a no-key template fallback; Gemini egress is not yet declared in the manifest. Follow [PLAN.md](PLAN.md) for the remaining implementation status and [BLOCKERS.md](BLOCKERS.md) for work that needs account access or a user action.
 
 ## Reused ideas vs new code
 
-The read-only [old CodeBuddy reference](../codebuddy-reference) informed the staged hint levels, the rule to avoid inventing an explanation when the trace and source do not match, and the approach of fetching only relevant source context. This Forge app reimplements those ideas in TypeScript for Jira; it does not copy the Python/Streamlit implementation. The Jira issue panel, resolver flow, cross-language trace parser, Forge permissions, and UI are new code for this repository. The parser in `src/parser/parseStackTrace.ts` handles Python, JavaScript/TypeScript, and Java frames, skips common framework frames when selecting source context, and returns `null` for text without a stack frame.
+The read-only [old CodeBuddy reference](../codebuddy-reference) informed the staged hint levels, the rule to avoid inventing an explanation when the trace and source do not match, and the approach of fetching only relevant source context. This Forge app reimplements those ideas in TypeScript for Jira; it does not copy the Python/Streamlit implementation. The Jira issue panel, resolver flow, cross-language trace parser, hint engine, Forge permissions, and UI are new code for this repository. The parser in `src/parser/parseStackTrace.ts` handles Python, JavaScript/TypeScript, and Java frames, skips common framework frames when selecting source context, and returns `null` for text without a stack frame. `src/hints/generateHints.ts` uses Gemini when configured and deterministic error templates otherwise.
 
 ## How this meets the Forge requirement
 
