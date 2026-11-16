@@ -1,46 +1,78 @@
 # CodeBuddy 2.0 for Jira
 
-CodeBuddy 2.0 is a Jira issue panel for beginners debugging application errors. Its planned flow reads an issue's description and comments, detects Python, JavaScript/TypeScript, or Java stack traces, and offers three levels of help: a nudge, a file-and-line pointer, and a full fix. When an issue links a public GitHub repository, the app can use a small source window around the relevant frame. Gemini is optional; deterministic templates must still give useful hints when the free model is unavailable or rate-limited.
+CodeBuddy 2.0 is a Jira issue panel that helps beginners understand application errors. It reads the current issue's description and comments, recognizes Python, JavaScript/TypeScript, and Java stack traces, and returns three progressive hints: a nudge, a file-and-line pointer, and a full fix. When the issue links a public GitHub repository, it fetches a bounded window from the relevant file. Gemini is optional; deterministic templates still provide useful hints when Gemini is unavailable, rate-limited, or not configured.
 
-## Current template
+## Current implementation
 
-This repository started from Forge's Jira issue panel UI Kit scaffold:
+- The Forge app key remains `codebuddy-forge`; “CodeBuddy 2.0” is its product display name.
+- `manifest.yml` declares the Jira issue panel, the Forge `action` module used by the Rovo agent, resolver functions, `read:jira-work`, and backend egress to only `generativelanguage.googleapis.com` and `api.github.com`. Forge's module key is `action`; the Rovo agent references the action by its key.
+- `src/frontend/index.jsx` uses UI Kit issue context and the Forge bridge to load Jira text as the current user and render loading, error, no-trace, source-status, and hint states.
+- `src/services/loadIssueText.ts` reads the issue description and paginates comments; `src/services/analyzeIssue.ts` coordinates the shared parser, GitHub context, and hint modules.
+- `src/parser/parseStackTrace.ts`, `src/github/loadGithubContext.ts`, and `src/hints/generateHints.ts` implement language parsing, bounded public source lookup, and Gemini/template hints.
+- `src/rovo/rovoAction.ts` adapts an issue key or pasted trace to the same analyzer used by the panel.
 
-- `manifest.yml` declares one `jira:issuePanel` module, a `main` UI resource, and a resolver function.
-- `src/frontend/index.jsx` is the UI Kit panel entry point. It currently invokes `getText` and displays the scaffold's greeting.
-- `src/resolvers/index.js` defines the `getText` resolver. It currently logs the resolver request and returns a greeting; remove that logging as the real resolver is implemented.
-- `src/index.js` exports the resolver handler used by the manifest.
-- The app's Forge key remains `codebuddy-forge`; “CodeBuddy 2.0” is the product display name used in user-facing documentation.
+## Setup
 
-## Architecture and status
-
-The runtime path is Jira issue panel → current-user Jira reads → Forge resolver → stack-trace parser → optional public GitHub context → Gemini hint generation with deterministic template fallback → three hints rendered in the panel. Parsing, issue text loading, repository loading, and hint generation are separate so they can be tested without a Jira site or live external calls.
-
-The Jira issue panel reads the active issue's description and comments as the current user, invokes a resolver, and shows nudge, pointer, and full-fix hints. The Rovo Agent can call the same shared analysis action using an issue key or pasted trace. The TypeScript parser, hint engine, and GitHub context loader are covered by tests, including a no-key template fallback and loading, error, and no-trace UI states. Gemini and GitHub egress plus the `read:jira-work` scope are declared; the deployed installation must be upgraded before Forge permits those capabilities. Follow [PLAN.md](PLAN.md) for remaining work and [BLOCKERS.md](BLOCKERS.md) for required manual checks.
-
-## Reused ideas vs new code
-
-The read-only [old CodeBuddy reference](../codebuddy-reference) informed the staged hint levels, the rule to avoid inventing an explanation when the trace and source do not match, and the approach of fetching only relevant source context. This Forge app reimplements those ideas in TypeScript for Jira; it does not copy the Python/Streamlit implementation. The Jira issue panel, resolver flow, cross-language trace parser, hint engine, repository loader, Forge permissions, and UI are new code for this repository. The parser in `src/parser/parseStackTrace.ts` handles Python, JavaScript/TypeScript, and Java frames, skips common framework frames when selecting source context, and returns `null` for text without a stack frame. `src/hints/generateHints.ts` uses Gemini when configured and deterministic error templates otherwise. `src/github/loadGithubContext.ts` fetches one public repository file, falls back to a unique tree filename match, enforces a size cap, and returns explicit rate-limit/error statuses.
-
-## How this meets the Forge requirement
-
-The product is delivered as an Atlassian Forge app: `manifest.yml` declares a Jira issue panel and Forge resolver, while the panel uses `@forge/react` UI Kit and Forge bridge invocation. The app is already deployed and installed on the demo site. Changes to manifest permissions require a deployment and, when scopes or egress change, an installation upgrade; do that only after the required Forge CLI access is available.
-
-## Development and checks
-
-Use Node.js and npm from the repository root:
+Prerequisites: Node.js 24, npm, an Atlassian developer site with Jira, and Forge CLI access. A first-time setup generally takes less than 10 minutes when Forge is already installed and the developer site is ready.
 
 ```powershell
+git clone https://github.com/hafeza-zainab/CodeBuddy-2.0.git
+cd CodeBuddy-2.0
 npm install
+npm run lint
+npm run build
+npm test
+forge login
+forge lint
+```
+
+Set `GEMINI_API_KEY` as an encrypted Forge environment variable. Run the command without a value so the CLI prompts for it:
+
+```powershell
+forge variables set --encrypt --environment development GEMINI_API_KEY
+```
+
+Forge encrypts the variable at rest. Redeploy after changing it for the runtime to receive the new value. Keep it out of source files, shell history, screenshots, logs, and commits. Without the variable, the app uses its template fallback. See [Forge CLI variables](https://developer.atlassian.com/platform/forge/cli-reference/variables/) and [encrypted variable setup](https://developer.atlassian.com/platform/forge/cli-reference/variables-set/).
+
+The manifest now requests Jira read scope and two external fetch hosts. After `forge lint` succeeds, deploy to development and upgrade the existing installation so the new scope and egress permissions take effect:
+
+```powershell
+forge deploy --non-interactive --e development
+forge install --non-interactive --upgrade --site <your-site>.atlassian.net --product jira --environment development
+```
+
+The issue panel uses current-user Jira access, so the viewer must have permission to browse the issue. The app reads descriptions and comments only; it does not edit Jira issues.
+
+## Development and tests
+
+Run these from the repository root after each implementation step:
+
+```powershell
 npm run lint
 npm run build
 npm test
 ```
 
-`npm run build` checks the template entry points and type-checks the TypeScript modules. `npm test` uses Node's built-in test runner; parser cases cover at least five messy examples per supported language. Validate Forge manifest changes with `forge lint` from this directory. The Forge CLI currently needs an authenticated session on the development machine; see `BLOCKERS.md`.
+The Node test runner covers the parser, template and Gemini request behavior, GitHub API responses, Jira text loading, shared analysis, and Rovo action inputs. Network dependencies are mocked in tests. `npm run build` syntax-checks the Forge entry points and JSX and type-checks the TypeScript service modules. Run `forge lint` after every manifest change; see `BLOCKERS.md` for the pending authenticated lint and Jira checks.
 
-The encrypted Forge variable `GEMINI_API_KEY` is used only by the backend. Never put it in source files, documentation, frontend code, or logs. The GitHub API path must work for public repositories without a token and show a useful rate-limit status when unauthenticated quota is exhausted.
+## Reused ideas vs new code
 
-## Demo
+The read-only [old CodeBuddy reference](../codebuddy-reference) informed the staged hint levels, the instruction to say when source and trace do not match instead of inventing details, and the approach of loading only relevant repository source. CodeBuddy 2.0 reimplements those ideas in TypeScript for Forge; it does not copy the Python/Streamlit implementation. The Jira panel, resolver and Rovo integrations, cross-language parser, GitHub loader, template catalog, permission model, and UI are new code in this repository.
 
-The planned demo is a short run in the installed Jira issue panel using a real issue with a stack trace and a linked public GitHub repository. Show the nudge first, then pointer and full fix, and include a no-trace or fallback case. The final step will add a timed script once the live flow is implemented.
+## How the Forge requirement is met
+
+CodeBuddy 2.0 is an installable Atlassian Forge Cloud app. The manifest declares a Jira issue panel rendered with `@forge/react`, Forge resolver functions, and a Rovo agent/action. Jira reads use the Forge bridge as the current user; Gemini and GitHub requests run in a Forge function under the declared backend egress allowlist. The project uses the Forge CLI to lint, deploy, and install the app.
+
+## Demo script (about 3 minutes)
+
+Use a real Jira issue on the demo site that contains a Python, JS/TS, or Java stack trace and a public GitHub repository link. Do not use an issue containing secrets or personal data.
+
+1. Open the issue and launch the **CodeBuddy 2.0** issue panel. Show the issue key and the error type the panel found.
+2. Show the repository status and fetched file window, or explain the clear status if the repository is unavailable.
+3. Read the nudge, then the file-and-line pointer, then the full fix. Point out whether the result came from Gemini or the local template fallback.
+4. Open an issue with no supported trace and show the no-trace state. If time permits, temporarily use an issue without a repository link to show hints still work without GitHub context.
+5. In Rovo chat, ask the CodeBuddy 2.0 agent to analyze a Jira issue or paste a trace. Show that it uses the reusable action and presents the same three levels.
+
+## Remaining manual checks
+
+See [BLOCKERS.md](BLOCKERS.md) for Forge lint, deployment/installation upgrade, Jira panel testing, and whether the demo site exposes the Rovo agent.
