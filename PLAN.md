@@ -11,7 +11,7 @@
 - [ ] **5. Jira panel wired to the resolver**
   - Acceptance criteria: use issue context dynamically, call the resolver with issue content and display all three hint levels plus source/status; keep permissions minimal and verify the manifest with Forge lint.
   - Implementation is complete; Forge lint remains a user-run check recorded in `BLOCKERS.md`.
-- [ ] **5b. Rovo agent + reusable action**
+- [x] **5b. Rovo agent + reusable action**
   - Acceptance criteria: add a manifest-valid `rovo:action` accepting an issue key or pasted trace and returning three hints, plus an agent that uses it; verify module syntax against current Forge docs and record any site eligibility/install dependency in `BLOCKERS.md`.
 - [x] **6. Loading, error and “no stack trace found” states**
   - Acceptance criteria: panel clearly handles loading, resolver/GitHub/Gemini failures, and missing traces while still showing useful template fallback output when possible.

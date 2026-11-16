@@ -1,4 +1,34 @@
 modules:
+  action:
+    - key: codebuddy-debug-action
+      name: Get CodeBuddy debugging hints
+      function: codebuddy-debug-action
+      actionVerb: GET
+      description: Analyze a pasted stack trace or a Jira issue key and return a nudge, pointer, and full fix.
+      inputs:
+        issueKey:
+          title: Jira issue key
+          type: string
+          required: false
+          description: Issue to analyze when you are not providing a pasted stack trace.
+        trace:
+          title: Pasted stack trace
+          type: string
+          required: false
+          description: Stack trace to analyze directly; takes priority over issueKey.
+  rovo:agent:
+    - key: codebuddy-debug-agent
+      name: CodeBuddy 2.0
+      description: A debugging tutor that gives progressive hints for Jira issue stack traces.
+      prompt: |
+        You are CodeBuddy 2.0, a patient debugging tutor for beginner programmers.
+        Use the Get CodeBuddy debugging hints action when the user provides a Jira issue key or stack trace.
+        Present the returned nudge, pointer, and full fix in that order. Do not invent project-specific details beyond the action result.
+      conversationStarters:
+        - Help me understand the error in this Jira issue
+        - Give me a nudge for this stack trace
+      actions:
+        - codebuddy-debug-action
   jira:issuePanel:
     - key: codebuddy-forge-hello-world-issue-panel
       resource: main
@@ -10,6 +40,8 @@ modules:
   function:
     - key: resolver
       handler: index.handler
+    - key: codebuddy-debug-action
+      handler: index.rovoAction
 resources:
   - key: main
     path: src/frontend/index.jsx
