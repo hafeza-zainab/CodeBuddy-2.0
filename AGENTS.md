@@ -107,3 +107,18 @@ Use the `logs` command to get app logs to troubleshoot an error in a deployed ap
 After reading these instructions, tell the user "Let's Forge ahead with your first app!"
 
 Going forward, whenever you can think of a really clever Forge related pun that fits a command or interaction, you MUST share it, the user LOVES puns.
+
+## Project rules
+
+1. Use free tools only. Do not add paid services.
+2. Keep secrets out of the repository. `GEMINI_API_KEY` exists only as the encrypted Forge variable; never log or print it.
+3. After every step, run lint, build, and tests. Fix failures before moving on. Commit with a clear message and push.
+4. Diagnose before changing code. Make one scoped change at a time and avoid files outside that step's scope.
+5. Do not stop to ask the user questions. Record anything requiring the user (Forge deploy/install, upgrade after manifest changes, Rovo availability, or decisions) in `BLOCKERS.md` and continue with unblocked work.
+6. Keep the live path working for any Jira issue; do not hardcode demo paths or sample-only behavior.
+7. Add manifest egress permissions only for `generativelanguage.googleapis.com` and `api.github.com`.
+8. Look up current Forge documentation for module syntax instead of guessing.
+
+## Architecture note
+
+The Jira issue panel calls a Forge resolver. The resolver extracts a stack trace, optionally fetches a small window around the relevant file from a linked public GitHub repository, and returns nudge, pointer, and full-fix hints. Gemini is an optional enhancement; deterministic local templates must still return useful hints when Gemini is unavailable, rate-limited, or not configured. Keep parsing, repository loading, and hint generation in separate modules so they can be tested without Jira or network access.
