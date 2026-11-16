@@ -6,7 +6,7 @@
   "private": true,
   "scripts": {
     "lint": "eslint src/**/*",
-    "build": "node --check src/index.js && node --check src/resolvers/index.js && tsc --noEmit --target ES2022 --module ESNext --strict src/parser/parseStackTrace.ts src/hints/generateHints.ts src/github/loadGithubContext.ts",
+    "build": "node --check src/index.js && node --check src/resolvers/index.js && node -e \"require('@babel/parser').parse(require('fs').readFileSync('src/frontend/index.jsx','utf8'), {sourceType:'module',plugins:['jsx']})\" && tsc --noEmit --allowImportingTsExtensions --target ES2022 --module ESNext --strict src/parser/parseStackTrace.ts src/hints/generateHints.ts src/github/loadGithubContext.ts src/services/loadIssueText.ts src/services/analyzeIssue.ts",
     "test": "node --experimental-strip-types --test"
   },
   "devDependencies": {

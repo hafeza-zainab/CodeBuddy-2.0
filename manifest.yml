@@ -20,6 +20,8 @@ app:
     architecture: arm64
   id: ari:cloud:ecosystem::app/fac8a6a6-0163-460c-ba90-8581b40d9018
 permissions:
+  scopes:
+    - read:jira-work
   external:
     fetch:
       backend:

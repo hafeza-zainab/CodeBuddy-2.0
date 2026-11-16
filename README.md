@@ -14,9 +14,9 @@ This repository started from Forge's Jira issue panel UI Kit scaffold:
 
 ## Architecture and status
 
-The intended runtime path is Jira issue panel → Forge resolver → stack-trace parser → optional public GitHub context → Gemini hint generation with deterministic template fallback → three hints rendered in the panel. Parsing, repository loading, and hint generation will remain separate so they can be tested without a Jira site or external network calls.
+The runtime path is Jira issue panel → current-user Jira reads → Forge resolver → stack-trace parser → optional public GitHub context → Gemini hint generation with deterministic template fallback → three hints rendered in the panel. Parsing, issue text loading, repository loading, and hint generation are separate so they can be tested without a Jira site or live external calls.
 
-The Jira panel and resolver are still the hello-world scaffold. The TypeScript parser, hint engine, and GitHub context loader are implemented and covered by tests, including a no-key template fallback. Gemini and GitHub egress are declared in the manifest; the deployed installation must be upgraded before Forge permits those live external calls. Follow [PLAN.md](PLAN.md) for the remaining implementation status and [BLOCKERS.md](BLOCKERS.md) for work that needs account access or a user action.
+The Jira issue panel reads the active issue's description and comments as the current user, invokes a resolver, and shows nudge, pointer, and full-fix hints. The TypeScript parser, hint engine, and GitHub context loader are covered by tests, including a no-key template fallback and loading, error, and no-trace UI states. Gemini and GitHub egress plus the `read:jira-work` scope are declared; the deployed installation must be upgraded before Forge permits those capabilities. Follow [PLAN.md](PLAN.md) for remaining work and [BLOCKERS.md](BLOCKERS.md) for required manual checks.
 
 ## Reused ideas vs new code
 

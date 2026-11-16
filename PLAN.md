@@ -10,9 +10,10 @@
   - Acceptance criteria: find a public GitHub repository URL in issue text, fetch only the selected frame's source via GitHub API, trim to about 60 lines around the failing line, enforce a size cap, handle absent/private/missing/path mismatch/rate-limit/no-token cases without crashing, and mock HTTP in tests.
 - [ ] **5. Jira panel wired to the resolver**
   - Acceptance criteria: use issue context dynamically, call the resolver with issue content and display all three hint levels plus source/status; keep permissions minimal and verify the manifest with Forge lint.
+  - Implementation is complete; Forge lint remains a user-run check recorded in `BLOCKERS.md`.
 - [ ] **5b. Rovo agent + reusable action**
   - Acceptance criteria: add a manifest-valid `rovo:action` accepting an issue key or pasted trace and returning three hints, plus an agent that uses it; verify module syntax against current Forge docs and record any site eligibility/install dependency in `BLOCKERS.md`.
-- [ ] **6. Loading, error and “no stack trace found” states**
+- [x] **6. Loading, error and “no stack trace found” states**
   - Acceptance criteria: panel clearly handles loading, resolver/GitHub/Gemini failures, and missing traces while still showing useful template fallback output when possible.
 - [ ] **7. Setup, testing and demo-script docs**
   - Acceptance criteria: README lets a stranger set up and validate the app in under 10 minutes; includes “Reused ideas vs new code” crediting the old CodeBuddy, explains how the Forge requirement is met, and contains a real-input Jira demo script under five minutes; no secrets are documented or committed.
