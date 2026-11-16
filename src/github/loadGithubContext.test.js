@@ -140,3 +140,18 @@ test('handles a direct 429 response and invalid stack frame paths', async () => 
   assert.equal(rateLimited.status, 'rate-limited');
   assert.equal(invalidPath.status, 'invalid-frame-path');
 });
+
+test('bounds each GitHub request and returns a status when the network stalls', async () => {
+  let calls = 0;
+  const result = await loadGithubContext('https://github.com/acme/demo', frame, {
+    requestTimeoutMs: 2,
+    fetcher: (_url, init) => {
+      calls += 1;
+      return new Promise((_resolve, reject) => {
+        init.signal.addEventListener('abort', () => reject(new Error('request timed out')));
+      });
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.status, 'request-failed');
+});

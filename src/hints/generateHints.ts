@@ -220,7 +220,7 @@ async function requestGemini(
   options: HintEngineOptions,
 ): Promise<{ hints: HintSet | null; reason?: FallbackReason }> {
   const fetcher = options.fetcher ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 8_000;
+  const timeoutMs = options.timeoutMs ?? 6_000;
   const retryDelayMs = options.retryDelayMs ?? 200;
   const model = options.model ?? MODEL;
   const url = `${API_ROOT}/${encodeURIComponent(model)}:generateContent`;

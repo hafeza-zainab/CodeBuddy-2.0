@@ -9,6 +9,11 @@ interface JiraIssueResponse {
   fields?: { description?: unknown };
 }
 
+interface AdfMark {
+  type?: string;
+  attrs?: { href?: unknown };
+}
+
 interface JiraCommentPage {
   comments?: Array<{ body?: unknown }>;
   startAt?: number;
@@ -27,8 +32,15 @@ export function adfToText(value: unknown): string {
   if (Array.isArray(value)) return value.map(adfToText).join('');
   if (!value || typeof value !== 'object') return '';
 
-  const node = value as { type?: string; text?: string; content?: unknown[] };
-  if (node.type === 'text') return node.text ?? '';
+  const node = value as { type?: string; text?: string; content?: unknown[]; marks?: AdfMark[] };
+  if (node.type === 'text') {
+    const visibleText = node.text ?? '';
+    const linkMark = node.marks?.find((mark) => mark.type === 'link');
+    const href = typeof linkMark?.attrs?.href === 'string' ? linkMark.attrs.href : '';
+    // Jira often stores a repository URL only in the hyperlink mark while
+    // displaying friendly text such as “source repository” in the issue.
+    return href && href !== visibleText ? `${visibleText} ${href}` : visibleText;
+  }
   if (node.type === 'hardBreak') return '\n';
 
   const children = Array.isArray(node.content) ? node.content.map(adfToText).join('') : '';

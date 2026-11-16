@@ -27,6 +27,7 @@ export interface GithubContextOptions {
   fetcher?: typeof fetch;
   maxFileBytes?: number;
   windowLines?: number;
+  requestTimeoutMs?: number;
 }
 
 interface RepoReference {
@@ -138,10 +139,13 @@ function classifyFailure(response: Response): GithubContextStatus {
   return 'request-failed';
 }
 
-async function fetchJson<T>(fetcher: typeof fetch, url: string): Promise<ApiResponse<T> | null> {
+async function fetchJson<T>(fetcher: typeof fetch, url: string, timeoutMs: number): Promise<ApiResponse<T> | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetcher(url, {
       method: 'GET',
+      signal: controller.signal,
       headers: {
         accept: 'application/vnd.github+json',
         'x-github-api-version': '2022-11-28',
@@ -151,6 +155,8 @@ async function fetchJson<T>(fetcher: typeof fetch, url: string): Promise<ApiResp
     return readApiResponse<T>(response);
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -197,10 +203,11 @@ async function fetchContents(
   path: string,
   ref: string | undefined,
   maxBytes: number,
+  timeoutMs: number,
 ): Promise<{ source?: string; status?: GithubContextStatus }> {
   const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
   const url = `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePath(path)}${query}`;
-  const apiResponse = await fetchJson<ContentsPayload>(fetcher, url);
+  const apiResponse = await fetchJson<ContentsPayload>(fetcher, url, timeoutMs);
   if (!apiResponse) return { status: 'request-failed' };
   if (!apiResponse.response.ok) return { status: classifyFailure(apiResponse.response) };
 
@@ -234,8 +241,9 @@ export async function loadGithubContext(
   const fetcher = options.fetcher ?? fetch;
   const maxBytes = options.maxFileBytes ?? MAX_FILE_BYTES;
   const windowLines = options.windowLines ?? WINDOW_LINES;
+  const requestTimeoutMs = options.requestTimeoutMs ?? 2_500;
   const firstPath = normalizePath(frame.filePath);
-  const initial = await fetchContents(fetcher, repository.owner, repository.repo, firstPath, repository.branch, maxBytes);
+  const initial = await fetchContents(fetcher, repository.owner, repository.repo, firstPath, repository.branch, maxBytes, requestTimeoutMs);
   let source = initial.source;
   let selectedPath = firstPath;
 
@@ -245,6 +253,7 @@ export async function loadGithubContext(
     const repoResult = await fetchJson<RepositoryPayload>(
       fetcher,
       `${API_ROOT}/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}`,
+      requestTimeoutMs,
     );
     if (!repoResult) return result('request-failed', { repoUrl: repository.url });
     if (!repoResult.response.ok) {
@@ -256,6 +265,7 @@ export async function loadGithubContext(
     const treeResult = await fetchJson<TreePayload>(
       fetcher,
       `${API_ROOT}/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+      requestTimeoutMs,
     );
     if (!treeResult) return result('request-failed', { repoUrl: repository.url });
     if (!treeResult.response.ok) return result(classifyFailure(treeResult.response), { repoUrl: repository.url });
@@ -268,7 +278,7 @@ export async function loadGithubContext(
     if (!match) return result('file-not-found', { repoUrl: repository.url });
 
     selectedPath = match;
-    const retry = await fetchContents(fetcher, repository.owner, repository.repo, selectedPath, branch, maxBytes);
+    const retry = await fetchContents(fetcher, repository.owner, repository.repo, selectedPath, branch, maxBytes, requestTimeoutMs);
     if (!retry.source) return result(retry.status ?? 'request-failed', { repoUrl: repository.url, filePath: selectedPath });
     source = retry.source;
   } else if (!source) {

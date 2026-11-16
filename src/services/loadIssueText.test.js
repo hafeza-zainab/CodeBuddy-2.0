@@ -14,6 +14,15 @@ test('flattens Jira document nodes while preserving paragraph and code line brea
   assert.equal(text, 'Traceback:\nError\n at app.js:2\n');
 });
 
+test('keeps a repository hyperlink URL when Jira displays friendly link text', () => {
+  const text = adfToText({ type: 'paragraph', content: [{
+    type: 'text',
+    text: 'source repository',
+    marks: [{ type: 'link', attrs: { href: 'https://github.com/acme/app' } }],
+  }] });
+  assert.match(text, /source repository https:\/\/github\.com\/acme\/app/);
+});
+
 test('reads a Jira description and paginates all issue comments through the injected user request', async () => {
   const calls = [];
   const result = await loadIssueText('DEV-23', async (uri) => {
