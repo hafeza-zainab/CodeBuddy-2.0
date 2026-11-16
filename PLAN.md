@@ -1,6 +1,6 @@
 # CodeBuddy 2.0 implementation plan
 
-- [ ] **1. Document the template**
+- [x] **1. Document the template**
   - Acceptance criteria: describe the existing Forge Jira issue-panel scaffold, its manifest modules, frontend/resolver entry points, and local validation commands; document the CodeBuddy 2.0 product flow and clearly separate reused ideas from new TypeScript/Forge code.
 - [ ] **2. Stack-trace parser (Python, JS/TS, Java) with tests**
   - Acceptance criteria: parse error type, message, and frames (file, line, function) from realistic Python, Node/browser JS/TS, and Java traces, including noisy/partial Jira text and chained causes; select a relevant application frame; return `null` for non-traces; unit tests cover at least five realistic cases per language.
