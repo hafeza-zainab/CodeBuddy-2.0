@@ -6,12 +6,14 @@
   "private": true,
   "scripts": {
     "lint": "eslint src/**/*",
-    "build": "node --check src/index.js && node --check src/resolvers/index.js",
-    "test": "node --test"
+    "build": "node --check src/index.js && node --check src/resolvers/index.js && tsc --noEmit --target ES2022 --module ESNext --strict src/parser/parseStackTrace.ts",
+    "test": "node --experimental-strip-types --test"
   },
   "devDependencies": {
+    "@typescript-eslint/parser": "^8.72.2",
     "eslint": "^8.56.0",
-    "eslint-plugin-react-hooks": "^4.6.0"
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "typescript": "^6.0.3"
   },
   "dependencies": {
     "@forge/bridge": "7.3.0-next.12",

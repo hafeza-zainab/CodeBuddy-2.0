@@ -6,6 +6,12 @@
       "jsx": true
     }
   },
+  "overrides": [
+    {
+      "files": ["*.ts"],
+      "parser": "@typescript-eslint/parser"
+    }
+  ],
   "plugins": [
     "react-hooks"
   ],
