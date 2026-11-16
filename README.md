@@ -26,6 +26,8 @@ forge login
 forge lint
 ```
 
+If Forge reports `Not logged in` because credentials are only available in another terminal, set `FORGE_EMAIL` and `FORGE_API_TOKEN` in the same PowerShell session before running Forge commands. Use an Atlassian API scoped token with Forge access. With these environment variables set, the CLI uses them directly; do not also run `forge login`. See [Forge environment-variable login](https://developer.atlassian.com/platform/forge/getting-started/#using-environment-variables-to-login).
+
 Set `GEMINI_API_KEY` as an encrypted Forge environment variable. Run the command without a value so the CLI prompts for it:
 
 ```powershell
@@ -53,7 +55,7 @@ npm run build
 npm test
 ```
 
-The Node test runner covers the parser, template and Gemini request behavior, GitHub API responses, Jira text loading, shared analysis, and Rovo action inputs. Network dependencies are mocked in tests. `npm run build` syntax-checks the Forge entry points and JSX and type-checks the TypeScript service modules. Run `forge lint` after every manifest change; see `BLOCKERS.md` for the pending authenticated lint and Jira checks.
+The Node test runner covers the parser, template and Gemini request behavior, GitHub API responses, Jira text loading, shared analysis, and Rovo action inputs. Network dependencies are mocked in tests. `npm run build` syntax-checks the Forge entry points and JSX and type-checks the TypeScript service modules. Run `forge lint` after every manifest change. The current login, deployment, upgrade, and Jira test status is tracked in `BLOCKERS.md`.
 
 ## Reused ideas vs new code
 
