@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseStackTrace } from '../parser/parseStackTrace.ts';
-import { generateHints } from './generateHints.ts';
+import { parseStackTrace } from '../parser/parseStackTrace';
+import { generateHints } from './generateHints';
 
 function sampleTrace(errorType = 'NameError', language = 'python') {
   const examples = {

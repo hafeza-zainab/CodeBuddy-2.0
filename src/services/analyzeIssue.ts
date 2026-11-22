@@ -1,6 +1,6 @@
-import { generateHints, type HintEngineOptions, type HintResult } from '../hints/generateHints.ts';
-import { loadGithubContext, type GithubContextOptions, type GithubContextResult } from '../github/loadGithubContext.ts';
-import { parseStackTrace, type ParsedStackTrace } from '../parser/parseStackTrace.ts';
+import { generateHints, type HintEngineOptions, type HintResult } from '../hints/generateHints';
+import { loadGithubContext, type GithubContextOptions, type GithubContextResult } from '../github/loadGithubContext';
+import { parseStackTrace, type ParsedStackTrace } from '../parser/parseStackTrace';
 
 export interface AnalyzeIssueResult {
   status: 'ok' | 'no-trace';

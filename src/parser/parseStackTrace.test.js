@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseStackTrace } from './parseStackTrace.ts';
+import { parseStackTrace } from './parseStackTrace';
 
 const cases = [
   {

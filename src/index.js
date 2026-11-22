@@ -1,7 +1,7 @@
 import api, { route } from '@forge/api';
-import { analyzeIssue } from './services/analyzeIssue.ts';
-import { loadIssueText } from './services/loadIssueText.ts';
-import { handleRovoAction } from './rovo/rovoAction.ts';
+import { analyzeIssue } from './services/analyzeIssue';
+import { loadIssueText } from './services/loadIssueText';
+import { handleRovoAction } from './rovo/rovoAction';
 
 export { handler } from './resolvers';
 

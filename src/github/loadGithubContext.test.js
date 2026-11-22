@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findGithubRepository, loadGithubContext } from './loadGithubContext.ts';
+import { findGithubRepository, loadGithubContext } from './loadGithubContext';
 
 const frame = { filePath: '/workspace/project/src/app.js', line: 50, functionName: 'run' };
 

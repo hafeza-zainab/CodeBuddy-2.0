@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { handleRovoAction } from './rovoAction.ts';
+import { handleRovoAction } from './rovoAction';
 
 const analysis = { status: 'ok', hints: { source: 'template', nudge: 'n', pointer: 'p', fix: 'f' } };
 

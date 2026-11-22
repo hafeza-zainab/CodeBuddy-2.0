@@ -1,5 +1,5 @@
 import Resolver from '@forge/resolver';
-import { analyzeIssue } from '../services/analyzeIssue.ts';
+import { analyzeIssue } from '../services/analyzeIssue';
 
 const resolver = new Resolver();
 

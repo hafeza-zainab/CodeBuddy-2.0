@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeIssue } from './analyzeIssue.ts';
+import { analyzeIssue } from './analyzeIssue';
 
 const traceText = 'Traceback (most recent call last):\n  File "src/app.py", line 8, in run\nNameError: name \'user\' is not defined';
 

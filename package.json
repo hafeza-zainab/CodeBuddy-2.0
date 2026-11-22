@@ -6,13 +6,14 @@
   "private": true,
   "scripts": {
     "lint": "eslint src/**/*",
-    "build": "node --check src/index.js && node --check src/resolvers/index.js && node -e \"require('@babel/parser').parse(require('fs').readFileSync('src/frontend/index.jsx','utf8'), {sourceType:'module',plugins:['jsx']})\" && tsc --noEmit --allowImportingTsExtensions --target ES2022 --module ESNext --strict src/parser/parseStackTrace.ts src/hints/generateHints.ts src/github/loadGithubContext.ts src/services/loadIssueText.ts src/services/analyzeIssue.ts src/rovo/rovoAction.ts",
-    "test": "node --experimental-strip-types --test"
+    "build": "node --check src/index.js && node --check src/resolvers/index.js && node -e \"require('@babel/parser').parse(require('fs').readFileSync('src/frontend/index.jsx','utf8'), {sourceType:'module',plugins:['jsx']})\" && tsc --noEmit",
+    "test": "tsx --test"
   },
   "devDependencies": {
     "@typescript-eslint/parser": "^8.72.2",
     "eslint": "^8.56.0",
     "eslint-plugin-react-hooks": "^4.6.0",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3"
   },
   "dependencies": {

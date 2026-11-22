@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { adfToText, loadIssueText } from './loadIssueText.ts';
+import { adfToText, loadIssueText } from './loadIssueText';
 
 function response(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });

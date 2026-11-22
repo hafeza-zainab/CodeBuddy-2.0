@@ -1,5 +1,5 @@
-import { analyzeIssue, type AnalyzeIssueResult } from '../services/analyzeIssue.ts';
-import { loadIssueText, type IssueTextResult } from '../services/loadIssueText.ts';
+import { analyzeIssue, type AnalyzeIssueResult } from '../services/analyzeIssue';
+import { loadIssueText, type IssueTextResult } from '../services/loadIssueText';
 
 type ActionPayload = {
   issueKey?: unknown;

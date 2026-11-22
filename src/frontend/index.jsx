@@ -8,7 +8,7 @@ import ForgeReconciler, {
   useProductContext,
 } from '@forge/react';
 import { invoke, requestJira } from '@forge/bridge';
-import { loadIssueText } from '../services/loadIssueText.ts';
+import { loadIssueText } from '../services/loadIssueText';
 
 /** Keep the view states explicit so a Jira or service failure never looks like an empty success. */
 const App = () => {
