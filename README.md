@@ -26,7 +26,7 @@ forge login
 forge lint
 ```
 
-If Forge reports `Not logged in` because credentials are only available in another terminal, set `FORGE_EMAIL` and `FORGE_API_TOKEN` in the same PowerShell session before running Forge commands. Use an Atlassian API scoped token with Forge access. With these environment variables set, the CLI uses them directly; do not also run `forge login`. See [Forge environment-variable login](https://developer.atlassian.com/platform/forge/getting-started/#using-environment-variables-to-login).
+If Forge reports `Not logged in` or `Credentials Vault: Access is denied` because credentials are unavailable to the current shell, set `FORGE_EMAIL` and `FORGE_API_TOKEN` in the same PowerShell session before running Forge commands. Use an Atlassian API scoped token with Forge access. With these environment variables set, the CLI uses them directly; do not also run `forge login`. See [Forge environment-variable login](https://developer.atlassian.com/platform/forge/getting-started/#using-environment-variables-to-login).
 
 Set `GEMINI_API_KEY` as an encrypted Forge environment variable. Run the command without a value so the CLI prompts for it:
 
@@ -40,7 +40,7 @@ The manifest now requests Jira read scope and two external fetch hosts. After `f
 
 ```powershell
 forge deploy --non-interactive --e development
-forge install --non-interactive --upgrade --site <your-site>.atlassian.net --product jira --environment development
+forge install --non-interactive --upgrade --site one-atlas-vvoi.atlassian.net --product jira --environment development
 ```
 
 The issue panel uses current-user Jira access, so the viewer must have permission to browse the issue. The app reads descriptions and comments only; it does not edit Jira issues.
