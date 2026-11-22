@@ -1,0 +1,26 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  FORGE_INTERACTIVE_RUNTIME_LIMIT_MS,
+  GEMINI_MAX_ATTEMPTS,
+  GEMINI_REQUEST_TIMEOUT_MS,
+  GEMINI_RETRY_DELAY_MS,
+  GITHUB_REQUEST_TIMEOUT_MS,
+  ISSUE_REQUEST_TIMEOUT_MS,
+  MAX_GITHUB_REQUESTS_PER_ANALYSIS,
+  MAX_ISSUE_COMMENT_PAGES,
+  MAX_SEQUENTIAL_NETWORK_BUDGET_MS,
+} from './analysisBudget';
+
+test('worst-case Jira, GitHub, and retried Gemini requests fit inside Forge runtime with margin', () => {
+  const calculatedBudget = (
+    (1 + MAX_ISSUE_COMMENT_PAGES) * ISSUE_REQUEST_TIMEOUT_MS
+    + MAX_GITHUB_REQUESTS_PER_ANALYSIS * GITHUB_REQUEST_TIMEOUT_MS
+    + GEMINI_MAX_ATTEMPTS * GEMINI_REQUEST_TIMEOUT_MS
+    + GEMINI_RETRY_DELAY_MS
+  );
+
+  assert.equal(MAX_SEQUENTIAL_NETWORK_BUDGET_MS, calculatedBudget);
+  assert.equal(MAX_SEQUENTIAL_NETWORK_BUDGET_MS, 17_700);
+  assert.ok(FORGE_INTERACTIVE_RUNTIME_LIMIT_MS - MAX_SEQUENTIAL_NETWORK_BUDGET_MS >= 7_000);
+});

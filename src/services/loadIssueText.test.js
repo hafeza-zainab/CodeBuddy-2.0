@@ -133,6 +133,42 @@ test('keeps description analysis available when comment access fails', async () 
   assert.match(result.warning, /HTTP 403/);
 });
 
+test('caps comment pagination and reports when older comments were omitted', async () => {
+  const calls = [];
+  const result = await loadIssueText('DEV-27', async (uri) => {
+    calls.push(uri);
+    if (uri.includes('/comment?')) {
+      const startAt = Number(new URLSearchParams(uri.split('?')[1]).get('startAt'));
+      return response({
+        startAt,
+        total: 250,
+        comments: Array.from({ length: 100 }, (_, index) => ({ body: `comment ${startAt + index}` })),
+      });
+    }
+    return response({ fields: { description: 'Issue description' } });
+  }, { maxCommentPages: 2 });
+
+  assert.equal(calls.length, 3);
+  assert.match(result.text, /comment 199/);
+  assert.doesNotMatch(result.text, /comment 200/);
+  assert.match(result.warning, /Only the first 200 Jira comments/);
+});
+
+test('returns a comment warning when a slow Jira response exceeds its request budget', async () => {
+  const result = await loadIssueText('DEV-28', async (uri) => {
+    if (uri.includes('/comment?')) {
+      // Ignore AbortSignal so the timeout race, rather than cooperative
+      // cancellation from this fake transport, must bound the wait.
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return response({ comments: [], total: 0 });
+    }
+    return response({ fields: { description: 'NameError: missing_name' } });
+  }, { requestTimeoutMs: 5 });
+
+  assert.equal(result.text, 'NameError: missing_name');
+  assert.match(result.warning, /could not load all comments/);
+});
+
 test('rejects invalid issue keys and reports denied issue access without returning response bodies', async () => {
   await assert.rejects(() => loadIssueText('not-an-issue', async () => response({})), /invalid/);
   await assert.rejects(() => loadIssueText('DEV-25', async () => response({ secret: 'private issue data' }, 403)), /HTTP 403/);

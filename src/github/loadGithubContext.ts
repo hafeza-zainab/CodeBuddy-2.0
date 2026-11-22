@@ -1,4 +1,5 @@
 import type { StackFrame } from '../parser/parseStackTrace';
+import { GITHUB_REQUEST_TIMEOUT_MS } from '../services/analysisBudget';
 
 export type GithubContextStatus =
   | 'ok'
@@ -141,8 +142,15 @@ function classifyFailure(response: Response): GithubContextStatus {
 
 async function fetchJson<T>(fetcher: typeof fetch, url: string, timeoutMs: number): Promise<ApiResponse<T> | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      resolve(null);
+    }, timeoutMs);
+  });
+
+  const request = (async () => {
     const response = await fetcher(url, {
       method: 'GET',
       signal: controller.signal,
@@ -152,11 +160,15 @@ async function fetchJson<T>(fetcher: typeof fetch, url: string, timeoutMs: numbe
         'user-agent': 'CodeBuddy-2.0-for-Jira',
       },
     });
-    return readApiResponse<T>(response);
+    return await readApiResponse<T>(response);
+  })();
+
+  try {
+    return await Promise.race([request, timeout]);
   } catch {
     return null;
   } finally {
-    clearTimeout(timeout);
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
   }
 }
 
@@ -241,7 +253,7 @@ export async function loadGithubContext(
   const fetcher = options.fetcher ?? fetch;
   const maxBytes = options.maxFileBytes ?? MAX_FILE_BYTES;
   const windowLines = options.windowLines ?? WINDOW_LINES;
-  const requestTimeoutMs = options.requestTimeoutMs ?? 2_500;
+  const requestTimeoutMs = options.requestTimeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS;
   const firstPath = normalizePath(frame.filePath);
   const initial = await fetchContents(fetcher, repository.owner, repository.repo, firstPath, repository.branch, maxBytes, requestTimeoutMs);
   let source = initial.source;

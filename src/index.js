@@ -10,7 +10,7 @@ export { handler } from './resolvers';
  * wrapper to the two read endpoints used by loadIssueText, then let Jira enforce
  * the invoking user's normal issue visibility with asUser().
  */
-function requestJiraAsCurrentUser(uri) {
+function requestJiraAsCurrentUser(uri, options) {
   const issueMatch = /^\/rest\/api\/3\/issue\/([A-Za-z][A-Za-z0-9_]*-\d+)(\?fields=description|\/comment\?startAt=(\d+)&maxResults=(\d+))$/.exec(uri);
   if (!issueMatch) throw new Error('Unsupported Jira read request.');
 
@@ -18,9 +18,10 @@ function requestJiraAsCurrentUser(uri) {
   if (requestType.startsWith('/comment')) {
     return api.asUser().requestJira(
       route`/rest/api/3/issue/${issueKey}/comment?startAt=${Number(startAt)}&maxResults=${Number(maxResults)}`,
+      options,
     );
   }
-  return api.asUser().requestJira(route`/rest/api/3/issue/${issueKey}?fields=description`);
+  return api.asUser().requestJira(route`/rest/api/3/issue/${issueKey}?fields=description`, options);
 }
 
 /** Entry point declared for the Rovo action module in manifest.yml. */

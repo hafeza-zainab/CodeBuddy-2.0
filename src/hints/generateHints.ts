@@ -1,4 +1,5 @@
 import type { ParsedStackTrace, TraceLanguage } from '../parser/parseStackTrace';
+import { GEMINI_MAX_ATTEMPTS, GEMINI_REQUEST_TIMEOUT_MS, GEMINI_RETRY_DELAY_MS } from '../services/analysisBudget';
 
 export interface HintSet {
   nudge: string;
@@ -220,16 +221,23 @@ async function requestGemini(
   options: HintEngineOptions,
 ): Promise<{ hints: HintSet | null; reason?: FallbackReason }> {
   const fetcher = options.fetcher ?? fetch;
-  const timeoutMs = options.timeoutMs ?? 6_000;
-  const retryDelayMs = options.retryDelayMs ?? 200;
+  const timeoutMs = options.timeoutMs ?? GEMINI_REQUEST_TIMEOUT_MS;
+  const retryDelayMs = options.retryDelayMs ?? GEMINI_RETRY_DELAY_MS;
   const model = options.model ?? MODEL;
   const url = `${API_ROOT}/${encodeURIComponent(model)}:generateContent`;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        reject(new Error('Gemini request timed out.'));
+      }, timeoutMs);
+    });
     let retryableFailure = false;
-    try {
+
+    const request = (async () => {
       const response = await fetcher(url, {
         method: 'POST',
         headers: {
@@ -243,6 +251,12 @@ async function requestGemini(
           generationConfig: { temperature: 0.2, maxOutputTokens: 1_200, responseMimeType: 'application/json' },
         }),
       });
+      const payload = response.ok ? await response.json() : null;
+      return { response, payload };
+    })();
+
+    try {
+      const { response, payload } = await Promise.race([request, timeout]);
       if (!response.ok) {
         if (isRetryableStatus(response.status)) {
           retryableFailure = true;
@@ -251,17 +265,17 @@ async function requestGemini(
           return { hints: null, reason: 'request-failed' };
         }
       } else {
-        const hints = parseGeneratedHints(await response.json());
+        const hints = parseGeneratedHints(payload);
         return hints ? { hints } : { hints: null, reason: 'invalid-response' };
       }
     } catch {
       retryableFailure = true;
       if (attempt === 1) return { hints: null, reason: 'request-failed' };
     } finally {
-      clearTimeout(timeout);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
 
-    if (retryableFailure && attempt === 0 && retryDelayMs > 0) {
+    if (retryableFailure && attempt < GEMINI_MAX_ATTEMPTS - 1 && retryDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }

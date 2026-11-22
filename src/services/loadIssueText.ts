@@ -1,8 +1,15 @@
+import { ISSUE_REQUEST_TIMEOUT_MS, MAX_ISSUE_COMMENT_PAGES } from './analysisBudget';
+
 export type JiraRequest = (uri: string, options?: RequestInit) => Promise<Response>;
 
 export interface IssueTextResult {
   text: string;
   warning?: string;
+}
+
+export interface IssueTextOptions {
+  requestTimeoutMs?: number;
+  maxCommentPages?: number;
 }
 
 interface JiraIssueResponse {
@@ -70,32 +77,72 @@ function requireSuccessfulResponse(response: Response, resource: string): void {
   }
 }
 
-/** Read the issue description and every comment through the current user's Jira permissions. */
-export async function loadIssueText(issueKey: string, requestJira: JiraRequest): Promise<IssueTextResult> {
+interface JiraJsonResponse<T> {
+  response: Response;
+  data: T | null;
+}
+
+/** Bound both the Jira request and response decoding so slow bodies cannot
+ * consume the entire Forge invocation after the network headers arrive. */
+function requestJiraJson<T>(requestJira: JiraRequest, uri: string, timeoutMs: number): Promise<JiraJsonResponse<T>> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Jira request timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+  });
+
+  const request = (async () => {
+    const response = await requestJira(uri, { signal: controller.signal });
+    const data = response.ok ? await response.json() as T : null;
+    return { response, data };
+  })();
+
+  return Promise.race([request, timeout]).finally(() => {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  });
+}
+
+/** Read issue text through the current user's permissions within a bounded comment-page budget. */
+export async function loadIssueText(
+  issueKey: string,
+  requestJira: JiraRequest,
+  options: IssueTextOptions = {},
+): Promise<IssueTextResult> {
   const safeIssueKey = issueKey.trim();
   if (!/^[A-Za-z][A-Za-z0-9_]*-\d+$/.test(safeIssueKey)) {
     throw new Error('The Jira issue key is missing or invalid.');
   }
 
   const encodedKey = encodeURIComponent(safeIssueKey);
-  const issueResponse = await requestJira(`/rest/api/3/issue/${encodedKey}?fields=description`);
+  const timeoutMs = Math.max(1, Math.floor(options.requestTimeoutMs ?? ISSUE_REQUEST_TIMEOUT_MS));
+  const maxCommentPages = Math.max(1, Math.floor(options.maxCommentPages ?? MAX_ISSUE_COMMENT_PAGES));
+  const issueResult = await requestJiraJson<JiraIssueResponse>(
+    requestJira,
+    `/rest/api/3/issue/${encodedKey}?fields=description`,
+    timeoutMs,
+  );
+  const issueResponse = issueResult.response;
   requireSuccessfulResponse(issueResponse, 'issue description');
-  const issue = await issueResponse.json() as JiraIssueResponse;
+  const issue = issueResult.data ?? {};
   const parts = [adfToText(issue.fields?.description).trim()].filter(Boolean);
 
   let startAt = 0;
   let total = 0;
   let warning: string | undefined;
+  let pagesRead = 0;
   do {
     const commentsUri = `/rest/api/3/issue/${encodedKey}/comment?startAt=${startAt}&maxResults=${COMMENT_PAGE_SIZE}`;
-    let response: Response;
     try {
-      response = await requestJira(commentsUri);
+      const { response, data } = await requestJiraJson<JiraCommentPage>(requestJira, commentsUri, timeoutMs);
       if (!response.ok) {
         warning = `Jira returned HTTP ${response.status} while reading issue comments; the description was still analyzed.`;
         break;
       }
-      const page = await response.json() as JiraCommentPage;
+      const page = data ?? {};
+      pagesRead += 1;
       const comments = page.comments ?? [];
       for (const comment of comments) {
         const text = adfToText(comment.body).trim();
@@ -107,6 +154,10 @@ export async function loadIssueText(issueKey: string, requestJira: JiraRequest):
       const nextStart = actualStart + comments.length;
       if (comments.length === 0 || nextStart <= startAt) break;
       startAt = nextStart;
+      if (startAt < total && pagesRead >= maxCommentPages) {
+        warning = `Only the first ${maxCommentPages * COMMENT_PAGE_SIZE} Jira comments were analyzed to stay within the Forge time budget.`;
+        break;
+      }
     } catch {
       warning = 'Jira could not load all comments; the available issue text was still analyzed.';
       break;

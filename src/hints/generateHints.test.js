@@ -97,6 +97,26 @@ test('retries a timed-out request once, then falls back without exposing transpo
   assert.equal(JSON.stringify(result).includes('transport detail'), false);
 });
 
+test('falls back before a slow Gemini response completes even if the transport ignores abort', async () => {
+  let calls = 0;
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    timeoutMs: 10,
+    retryDelayMs: 0,
+    // Deliberately ignore AbortSignal to verify the application-level timeout
+    // race still returns the deterministic fallback before this mock resolves.
+    fetcher: async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return response({ candidates: [{ content: { parts: [{ text: '{"nudge":"n","pointer":"p","fix":"f"}' }] } }] });
+    },
+  });
+
+  assert.equal(calls, 2);
+  assert.equal(result.source, 'template');
+  assert.equal(result.fallbackReason, 'request-failed');
+});
+
 test('falls back on malformed model output and tells the reader the example is generic', async () => {
   const result = await generateHints(sampleTrace(), 'const x = null;', {
     apiKey: 'test-key',
