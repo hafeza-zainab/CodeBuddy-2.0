@@ -2,7 +2,7 @@ modules:
   action:
     - key: codebuddy-debug-action
       name: Get CodeBuddy debugging hints
-      function: codebuddy-debug-action-handler
+      function: cb-debug-handler
       actionVerb: GET
       description: Analyze a pasted stack trace or a Jira issue key and return a
         nudge, pointer, and full fix.
@@ -42,7 +42,7 @@ modules:
   function:
     - key: resolver
       handler: index.handler
-    - key: codebuddy-debug-action-handler
+    - key: cb-debug-handler
       handler: index.rovoAction
 resources:
   - key: main
