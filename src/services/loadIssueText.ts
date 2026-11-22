@@ -14,6 +14,14 @@ interface AdfMark {
   attrs?: { href?: unknown };
 }
 
+interface AdfNode {
+  type?: string;
+  text?: string;
+  content?: unknown[];
+  marks?: AdfMark[];
+  attrs?: { text?: unknown };
+}
+
 interface JiraCommentPage {
   comments?: Array<{ body?: unknown }>;
   startAt?: number;
@@ -32,7 +40,7 @@ export function adfToText(value: unknown): string {
   if (Array.isArray(value)) return value.map(adfToText).join('');
   if (!value || typeof value !== 'object') return '';
 
-  const node = value as { type?: string; text?: string; content?: unknown[]; marks?: AdfMark[] };
+  const node = value as AdfNode;
   if (node.type === 'text') {
     const visibleText = node.text ?? '';
     const linkMark = node.marks?.find((mark) => mark.type === 'link');
@@ -42,6 +50,11 @@ export function adfToText(value: unknown): string {
     return href && href !== visibleText ? `${visibleText} ${href}` : visibleText;
   }
   if (node.type === 'hardBreak') return '\n';
+  if (node.type === 'mention') {
+    // Mentions are inline ADF nodes: their visible text lives in attrs.text,
+    // not in a child text node. Keep it so nearby trace text stays intact.
+    return typeof node.attrs?.text === 'string' ? node.attrs.text : '@unknown';
+  }
 
   const children = Array.isArray(node.content) ? node.content.map(adfToText).join('') : '';
   if (['paragraph', 'heading', 'codeBlock', 'blockquote', 'listItem'].includes(node.type ?? '')) {
