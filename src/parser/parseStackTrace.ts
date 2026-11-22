@@ -156,6 +156,44 @@ function parseErrorLine(text: string): { errorType: string; message: string } | 
   return lastMatch;
 }
 
+function isStackFrameLine(line: string): boolean {
+  return (
+    /^\s*File\s+["'][^"']+["'],\s*line\s+\d+/.test(line)
+    || JAVA_FRAME.test(line)
+    || JAVASCRIPT_AT_FRAME.test(line)
+    || JAVASCRIPT_PLAIN_FRAME.test(line)
+    || BROWSER_FRAME.test(line)
+  );
+}
+
+/**
+ * Jira issues can accumulate several console pastes. Parse the latest complete
+ * trace so its error line and relevant frame cannot accidentally come from
+ * different incidents. Python exception chains use another traceback header;
+ * Java `Caused by` entries remain part of the same trace and are handled below.
+ */
+function selectLatestTraceSegment(text: string): string {
+  const lines = text.split('\n');
+  const pythonStarts: number[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^\s*Traceback \(most recent call last\):\s*$/.test(lines[index])) pythonStarts.push(index);
+  }
+  if (pythonStarts.length > 1) return lines.slice(pythonStarts[pythonStarts.length - 1]).join('\n');
+
+  const errorStarts: number[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    if (/^\s*Caused by:\s*/i.test(lines[index])) continue;
+    if (ERROR_LINE.test(lines[index]) || GENERIC_ERROR_LINE.test(lines[index])) errorStarts.push(index);
+  }
+
+  const completeStarts = errorStarts.filter((start, candidateIndex) => {
+    const nextStart = errorStarts[candidateIndex + 1] ?? lines.length;
+    return lines.slice(start + 1, nextStart).some(isStackFrameLine);
+  });
+  if (completeStarts.length > 1) return lines.slice(completeStarts[completeStarts.length - 1]).join('\n');
+  return text;
+}
+
 /**
  * Extract a Python, JavaScript/TypeScript, or Java trace from arbitrary issue
  * text. Non-traces return null so the caller can show its empty state cleanly.
@@ -164,10 +202,11 @@ export function parseStackTrace(input: unknown): ParsedStackTrace | null {
   if (typeof input !== 'string' || !input.trim()) return null;
 
   const normalized = normalizeTraceText(input);
-  const parsedFrames = parseFrames(normalized);
+  const traceText = selectLatestTraceSegment(normalized);
+  const parsedFrames = parseFrames(traceText);
   if (!parsedFrames) return null;
 
-  const error = parseErrorLine(normalized);
+  const error = parseErrorLine(traceText);
   // A frame-only paste is still actionable; name it generically instead of
   // discarding the useful location information.
   const errorType = error?.errorType ?? 'Error';
@@ -176,6 +215,6 @@ export function parseStackTrace(input: unknown): ParsedStackTrace | null {
     errorType,
     message: error?.message ?? '',
     frames: parsedFrames.frames,
-    relevantFrame: selectRelevantFrame(parsedFrames.language, parsedFrames.frames, normalized),
+    relevantFrame: selectRelevantFrame(parsedFrames.language, parsedFrames.frames, traceText),
   };
 }

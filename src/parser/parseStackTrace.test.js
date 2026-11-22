@@ -113,3 +113,82 @@ test('skips framework-only frames without losing the trace', () => {
   assert.ok(parsed);
   assert.equal(parsed.relevantFrame, null);
 });
+
+test('parses a minified JavaScript frame with a large generated column number', () => {
+  const parsed = parseStackTrace('TypeError: Cannot read properties of null\n    at t (https://cdn.example.test/assets/app.min.js:1:984321)');
+  assert.equal(parsed?.language, 'javascript');
+  assert.equal(parsed?.relevantFrame?.filePath, 'https://cdn.example.test/assets/app.min.js');
+  assert.equal(parsed?.relevantFrame?.line, 1);
+});
+
+test('keeps the error and frame from the latest complete trace in an issue with multiple traces', () => {
+  const parsed = parseStackTrace([
+    'First console report:',
+    'TypeError: stale value',
+    '    at renderOld (/app/src/old.js:4:2)',
+    'Después de reiniciar, apareció un error distinto:',
+    'ReferenceError: activeUser is not defined',
+    '    at renderCurrent (/app/src/current.js:27:8)',
+  ].join('\n'));
+
+  assert.equal(parsed?.errorType, 'ReferenceError');
+  assert.equal(parsed?.message, 'activeUser is not defined');
+  assert.equal(parsed?.frames.length, 1);
+  assert.equal(parsed?.relevantFrame?.filePath, '/app/src/current.js');
+  assert.equal(parsed?.relevantFrame?.line, 27);
+});
+
+test('uses the deepest traceback in a Python exception chain', () => {
+  const parsed = parseStackTrace([
+    'Traceback (most recent call last):',
+    '  File "src/worker.py", line 12, in run',
+    '    raise RuntimeError("request failed")',
+    'RuntimeError: request failed',
+    '',
+    'The above exception was the direct cause of the following exception:',
+    '',
+    'Traceback (most recent call last):',
+    '  File "src/client.py", line 31, in request',
+    '    parse_response(body)',
+    'ValueError: invalid response',
+  ].join('\n'));
+
+  assert.equal(parsed?.language, 'python');
+  assert.equal(parsed?.errorType, 'ValueError');
+  assert.equal(parsed?.message, 'invalid response');
+  assert.deepEqual(parsed?.frames.map((frame) => frame.filePath), ['src/client.py']);
+  assert.equal(parsed?.relevantFrame?.line, 31);
+});
+
+test('selects the deepest cause and its application frame in a multi-level Java chain', () => {
+  const parsed = parseStackTrace([
+    'java.lang.RuntimeException: request failed',
+    '\tat com.example.Service.load(Service.java:8)',
+    'Caused by: java.lang.IllegalStateException: invalid response',
+    '\tat com.example.Repository.read(Repository.java:19)',
+    'Caused by: java.net.SocketTimeoutException: timed out',
+    '\tat com.example.Client.send(Client.java:42)',
+    '\tat java.base/java.net.Socket.connect(Socket.java:631)',
+  ].join('\n'));
+
+  assert.equal(parsed?.errorType, 'SocketTimeoutException');
+  assert.equal(parsed?.message, 'timed out');
+  assert.equal(parsed?.relevantFrame?.filePath, 'Client.java');
+  assert.equal(parsed?.relevantFrame?.line, 42);
+});
+
+test('parses a long trace surrounded by non-English issue text', () => {
+  const stackFrames = Array.from({ length: 1_500 }, (_, index) => (
+    `    at call${index} (/app/src/deep.js:${index + 1}:1)`
+  ));
+  const parsed = parseStackTrace([
+    'Descripción del problema: el fallo ocurre solo con datos importados.',
+    'TypeError: Cannot read properties of undefined',
+    ...stackFrames,
+    'Merci de vérifier la réponse du service.',
+  ].join('\n'));
+
+  assert.equal(parsed?.frames.length, 1_500);
+  assert.equal(parsed?.relevantFrame?.filePath, '/app/src/deep.js');
+  assert.equal(parsed?.relevantFrame?.line, 1);
+});
