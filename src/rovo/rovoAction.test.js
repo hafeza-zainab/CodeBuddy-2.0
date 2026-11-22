@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { handleRovoAction } from './rovoAction';
 
@@ -47,6 +48,15 @@ test('returns a clear input message when there is no trace or valid issue key', 
   const result = await handleRovoAction({ issueKey: 'not a key' });
   assert.equal(result.status, 'input-required');
   assert.match(result.message, /issue key or paste a stack trace/);
+});
+
+test('agent prompt explains the three hint levels and how to request missing input', async () => {
+  const manifest = await readFile(new URL('../../manifest.yml', import.meta.url), 'utf8');
+  assert.match(manifest, /If neither a stack trace, issue key, nor current issue context is available, ask the user to paste the trace or provide a Jira issue key/);
+  assert.match(manifest, /Nudge is a reflective question/);
+  assert.match(manifest, /Pointer identifies the relevant file and line/);
+  assert.match(manifest, /Full fix gives a concrete correction/);
+  assert.match(manifest, /no supported trace was found in the issue, ask the user to paste the stack trace/);
 });
 
 test('returns a privacy-safe read error when Jira denies the action user', async () => {

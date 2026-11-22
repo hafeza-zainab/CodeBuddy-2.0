@@ -11,7 +11,7 @@
   forge install --non-interactive --upgrade --site one-atlas-vvoi.atlassian.net --product jira --environment development
   ```
 
-- Local checks pass: `npm run lint`, `npm run build`, and `npm test` (49 tests). The working tree is current with the remote.
+- Local checks pass: `npm run lint`, `npm run build`, and `npm test` (63 tests). Manifest YAML parses locally and contains the Jira panel, action, and Rovo agent modules. Forge lint/deploy/upgrade remain pending in the authenticated Administrator PowerShell session.
 - In the Jira UI on `one-atlas-vvoi.atlassian.net`, the Rovo picker shows and selects **CodeBuddy 2.0**. A synthetic Python test issue with a deliberately invalid repository link was created as `TD-1` in the **Tally Dev** project on that same site. The CodeBuddy issue panel did not appear on that issue before a verified deployment/upgrade.
 - After deployment/upgrade, check the panel on a new-view Jira issue that the signed-in test user can edit. The current Forge docs say the panel button appears in the issue view menu (often the `•••` menu), and the panel content opens above Activity after the button is clicked. The module does not work in Jira's old issue view. If the button is absent, confirm the test user's Edit issue permission and that the issue is open in the new view before investigating logs or the manifest.
 - Manual app-panel tests for Python, JavaScript, Java, no trace, bad repository handling, and a deliberately invalid `GEMINI_API_KEY` remain pending. Do not change the configured Gemini variable in the live environment without a way to restore the valid value; use a temporary Forge environment or arrange restoration first.
