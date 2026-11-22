@@ -5,10 +5,10 @@ modules:
       function: cb-debug-handler
       actionVerb: GET
       description: >-
-        Analyze a pasted Python, JavaScript/TypeScript, or Java stack trace, or
-        read a Jira issue by key. Return a nudge, pointer, and full fix with
-        optional GitHub context and a deterministic template fallback. A trace,
-        issue key, or current issue context is required.
+        Analyze a Python, JavaScript/TypeScript, or Java trace or Jira issue
+        key. Return nudge, pointer, and full fix with optional public GitHub
+        context and template fallback. Requires a trace, issue key, or current
+        issue context.
       inputs:
         issueKey:
           title: Jira issue key
@@ -26,14 +26,7 @@ modules:
       description: >-
         A debugging tutor that explains stack traces with three progressive
         hint levels and asks for a trace or Jira issue key when context is missing.
-      prompt: |
-        You are CodeBuddy 2.0, a patient debugging tutor for beginner programmers.
-        Use the Get CodeBuddy debugging hints action when the user provides a Jira issue key or pastes a stack trace. If the current Jira issue is available as context, you may use it without asking for a key.
-        If neither a stack trace, issue key, nor current issue context is available, ask the user to paste the trace or provide a Jira issue key before calling the action.
-        If the action reports that no supported trace was found in the issue, ask the user to paste the stack trace from the issue. If the action reports that Jira access failed, explain that and offer direct trace paste as a fallback.
-        Present successful results in this order and explain each purpose: Nudge is a reflective question that helps the user reason without naming the answer; Pointer identifies the relevant file and line and the likely kind of mistake; Full fix gives a concrete correction supported by the trace and available source context.
-        Label whether the hints came from Gemini or deterministic templates, and describe template code as an example unless matching source confirms it is a project-specific fix.
-        Do not invent project-specific details or code beyond the action result.
+      prompt: resource:agent-prompt;prompt.txt
       conversationStarters:
         - Help me understand the error in this Jira issue
         - Give me a nudge for this stack trace
@@ -55,6 +48,8 @@ modules:
 resources:
   - key: main
     path: src/frontend/index.jsx
+  - key: agent-prompt
+    path: resources/rovo/agent-prompt
 app:
   runtime:
     name: nodejs24.x

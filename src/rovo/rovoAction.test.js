@@ -52,11 +52,13 @@ test('returns a clear input message when there is no trace or valid issue key', 
 
 test('agent prompt explains the three hint levels and how to request missing input', async () => {
   const manifest = await readFile(new URL('../../manifest.yml', import.meta.url), 'utf8');
-  assert.match(manifest, /If neither a stack trace, issue key, nor current issue context is available, ask the user to paste the trace or provide a Jira issue key/);
-  assert.match(manifest, /Nudge is a reflective question/);
-  assert.match(manifest, /Pointer identifies the relevant file and line/);
-  assert.match(manifest, /Full fix gives a concrete correction/);
-  assert.match(manifest, /no supported trace was found in the issue, ask the user to paste the stack trace/);
+  const prompt = await readFile(new URL('../../resources/rovo/agent-prompt/prompt.txt', import.meta.url), 'utf8');
+  assert.match(manifest, /prompt: resource:agent-prompt;prompt\.txt/);
+  assert.match(prompt, /no trace, issue key, or current Jira issue context, ask the user to paste the trace or provide a Jira issue key/);
+  assert.match(prompt, /Nudge is a reflective question/);
+  assert.match(prompt, /Pointer identifies the relevant file and line/);
+  assert.match(prompt, /Full fix gives a concrete correction/);
+  assert.match(prompt, /finds no supported trace in the issue, ask the user to paste the stack trace/);
 });
 
 test('returns a privacy-safe read error when Jira denies the action user', async () => {
