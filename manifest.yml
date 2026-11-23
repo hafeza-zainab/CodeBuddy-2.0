@@ -40,6 +40,15 @@ modules:
       render: native
       title: CodeBuddy 2.0
       icon: https://developer.atlassian.com/platform/forge/images/icons/issue-panel-icon.svg
+  jira:issueContext:
+    - key: codebuddy-issue-context
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: CodeBuddy 2.0
+      label: CodeBuddy
+      description: Analyze the issue stack trace with three progressive hints.
   function:
     - key: resolver
       handler: index.handler

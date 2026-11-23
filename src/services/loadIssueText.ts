@@ -26,7 +26,7 @@ interface AdfNode {
   text?: string;
   content?: unknown[];
   marks?: AdfMark[];
-  attrs?: { text?: unknown };
+  attrs?: { text?: unknown; url?: unknown };
 }
 
 interface JiraCommentPage {
@@ -61,6 +61,13 @@ export function adfToText(value: unknown): string {
     // Mentions are inline ADF nodes: their visible text lives in attrs.text,
     // not in a child text node. Keep it so nearby trace text stays intact.
     return typeof node.attrs?.text === 'string' ? node.attrs.text : '@unknown';
+  }
+
+  if (['inlineCard', 'blockCard', 'embedCard'].includes(node.type ?? '')) {
+    // Jira smart links can store the only copy of a pasted URL in attrs.url.
+    // Preserve it as ordinary text so repository discovery can find it.
+    const url = typeof node.attrs?.url === 'string' ? node.attrs.url : '';
+    return url ? `${url}${node.type === 'inlineCard' ? '' : '\n'}` : '';
   }
 
   const children = Array.isArray(node.content) ? node.content.map(adfToText).join('') : '';

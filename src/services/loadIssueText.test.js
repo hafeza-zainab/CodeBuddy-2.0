@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { adfToText, loadIssueText } from './loadIssueText';
 import { parseStackTrace } from '../parser/parseStackTrace';
+import { findGithubRepository } from '../github/loadGithubContext';
 
 function response(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
@@ -22,6 +23,58 @@ test('keeps a repository hyperlink URL when Jira displays friendly link text', (
     marks: [{ type: 'link', attrs: { href: 'https://github.com/acme/app' } }],
   }] });
   assert.match(text, /source repository https:\/\/github\.com\/acme\/app/);
+  assert.equal(findGithubRepository(text)?.repo, 'app');
+});
+
+test('finds a repository URL stored in a Jira inlineCard smart link', () => {
+  const text = adfToText({ type: 'doc', version: 1, content: [{
+    type: 'paragraph',
+    content: [
+      { type: 'text', text: 'Repository: ' },
+      { type: 'inlineCard', attrs: { url: 'https://github.com/codebuddy-qa/nonexistent-public-repo' } },
+    ],
+  }] });
+  assert.match(text, /Repository: https:\/\/github\.com\/codebuddy-qa\/nonexistent-public-repo/);
+  assert.deepEqual(findGithubRepository(text), {
+    owner: 'codebuddy-qa',
+    repo: 'nonexistent-public-repo',
+    url: 'https://github.com/codebuddy-qa/nonexistent-public-repo',
+    branch: undefined,
+  });
+});
+
+test('preserves blockCard and embedCard URLs from Jira ADF', () => {
+  const text = adfToText({ type: 'doc', version: 1, content: [
+    { type: 'blockCard', attrs: { url: 'https://github.com/acme/block-repo' } },
+    { type: 'embedCard', attrs: { url: 'https://github.com/acme/embed-repo' } },
+  ] });
+  assert.match(text, /https:\/\/github\.com\/acme\/block-repo/);
+  assert.match(text, /https:\/\/github\.com\/acme\/embed-repo/);
+  assert.equal(findGithubRepository(text)?.repo, 'block-repo');
+});
+
+test('keeps a plain-text GitHub URL in an ADF paragraph', () => {
+  const text = adfToText({ type: 'doc', version: 1, content: [{
+    type: 'paragraph',
+    content: [{ type: 'text', text: 'Repository: https://github.com/acme/plain-repo' }],
+  }] });
+  assert.equal(findGithubRepository(text)?.repo, 'plain-repo');
+});
+
+test('parses a Python trace split into plain ADF paragraphs with indentation lost', () => {
+  const text = adfToText({ type: 'doc', version: 1, content: [
+    { type: 'paragraph', content: [{ type: 'text', text: 'Repository: https://github.com/codebuddy-qa/nonexistent-public-repo' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'File "src/buggy_app.py", line 42, in handle_request' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: 'return int(payload["count"])' }] },
+    { type: 'paragraph', content: [{ type: 'text', text: "KeyError: 'count'" }] },
+  ] });
+  const parsed = parseStackTrace(text);
+  assert.equal(parsed?.language, 'python');
+  assert.equal(parsed?.errorType, 'KeyError');
+  assert.equal(parsed?.message, "'count'");
+  assert.equal(parsed?.relevantFrame?.filePath, 'src/buggy_app.py');
+  assert.equal(parsed?.relevantFrame?.line, 42);
+  assert.equal(findGithubRepository(text)?.repo, 'nonexistent-public-repo');
 });
 
 test('extracts a Python trace from a realistic ADF code block', () => {
