@@ -9,6 +9,7 @@ import ForgeReconciler, {
 } from '@forge/react';
 import { invoke, requestJira } from '@forge/bridge';
 import { loadIssueText } from '../services/loadIssueText';
+import { ANALYSIS_DEADLINE_MS } from '../services/analysisBudget';
 
 /** Keep the view states explicit so a Jira or service failure never looks like an empty success. */
 const App = () => {
@@ -31,13 +32,15 @@ const App = () => {
     setView({ status: 'loading' });
 
     const load = async () => {
+      const deadlineAt = Date.now() + ANALYSIS_DEADLINE_MS;
       try {
         // requestJira runs as the current Jira user, so Jira applies that
         // user's issue visibility and Browse Projects permissions.
-        const issueContent = await loadIssueText(issueKey, requestJira);
+        const issueContent = await loadIssueText(issueKey, requestJira, { deadlineAt });
         const analysis = await invoke('analyzeIssue', {
           issueText: issueContent.text,
           issueWarning: issueContent.warning,
+          deadlineAt,
         });
         if (isCurrent) setView({ status: analysis.status, analysis });
       } catch (error) {

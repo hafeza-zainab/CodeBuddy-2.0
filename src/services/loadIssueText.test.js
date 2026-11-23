@@ -219,7 +219,48 @@ test('returns a comment warning when a slow Jira response exceeds its request bu
   }, { requestTimeoutMs: 5 });
 
   assert.equal(result.text, 'NameError: missing_name');
-  assert.match(result.warning, /could not load all comments/);
+  assert.match(result.warning, /Could not load Jira issue comments after 2 attempt\(s\)/);
+});
+
+test('retries a slow Jira issue request once and succeeds on the retry', async () => {
+  let issueCalls = 0;
+  const result = await loadIssueText('DEV-29', async (uri) => {
+    if (!uri.includes('/comment?')) {
+      issueCalls += 1;
+      if (issueCalls === 1) await new Promise((resolve) => setTimeout(resolve, 30));
+      return response({ fields: { description: 'NameError: missing_name' } });
+    }
+    return response({ comments: [], total: 0 });
+  }, { requestTimeoutMs: 10, stageBudgetMs: 500 });
+
+  assert.equal(issueCalls, 2);
+  assert.equal(result.text, 'NameError: missing_name');
+});
+
+test('reports a clear issue-description error after Jira times out twice', async () => {
+  let issueCalls = 0;
+  await assert.rejects(() => loadIssueText('DEV-30', (uri, options) => {
+    if (!uri.includes('/comment?')) issueCalls += 1;
+    return new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new Error('aborted')));
+    });
+  }, { requestTimeoutMs: 5, stageBudgetMs: 500 }), /Could not load the Jira issue description after 2 attempt\(s\): the Jira request timed out/);
+  assert.equal(issueCalls, 2);
+});
+
+test('retries a Jira 5xx response once', async () => {
+  let issueCalls = 0;
+  const result = await loadIssueText('DEV-31', async (uri) => {
+    if (!uri.includes('/comment?')) {
+      issueCalls += 1;
+      if (issueCalls === 1) return response({ message: 'temporary outage' }, 503);
+      return response({ fields: { description: 'NameError: missing_name' } });
+    }
+    return response({ comments: [], total: 0 });
+  });
+
+  assert.equal(issueCalls, 2);
+  assert.equal(result.text, 'NameError: missing_name');
 });
 
 test('rejects invalid issue keys and reports denied issue access without returning response bodies', async () => {

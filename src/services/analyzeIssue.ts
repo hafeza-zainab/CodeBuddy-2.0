@@ -1,6 +1,12 @@
 import { generateHints, type HintEngineOptions, type HintResult } from '../hints/generateHints';
 import { loadGithubContext, type GithubContextOptions, type GithubContextResult } from '../github/loadGithubContext';
 import { parseStackTrace, type ParsedStackTrace } from '../parser/parseStackTrace';
+import {
+  ANALYSIS_DEADLINE_MS,
+  GITHUB_STAGE_BUDGET_MS,
+  MIN_REQUEST_START_WINDOW_MS,
+  remainingBudgetMs,
+} from './analysisBudget';
 
 export interface AnalyzeIssueResult {
   status: 'ok' | 'no-trace';
@@ -17,6 +23,8 @@ export interface AnalyzeIssueOptions {
   githubOptions?: GithubContextOptions;
   loadGithubContextFn?: typeof loadGithubContext;
   generateHintsFn?: typeof generateHints;
+  deadlineAt?: number;
+  now?: () => number;
 }
 
 /** Run the shared parse → repository-context → hint flow used by the panel and Rovo action. */
@@ -32,9 +40,25 @@ export async function analyzeIssue(issueText: string, options: AnalyzeIssueOptio
 
   const loadContext = options.loadGithubContextFn ?? loadGithubContext;
   const createHints = options.generateHintsFn ?? generateHints;
-  const github = await loadContext(issueText, trace.relevantFrame, options.githubOptions);
+  const now = options.now ?? Date.now;
+  const deadlineAt = options.deadlineAt ?? now() + ANALYSIS_DEADLINE_MS;
+  const canStartGithub = remainingBudgetMs(deadlineAt, now) >= MIN_REQUEST_START_WINDOW_MS;
+  const github = canStartGithub
+    ? await loadContext(issueText, trace.relevantFrame, {
+      ...options.githubOptions,
+      deadlineAt: Math.min(deadlineAt, now() + GITHUB_STAGE_BUDGET_MS),
+      now,
+    })
+    : {
+      status: 'request-failed' as const,
+      message: 'The analysis deadline was reached before GitHub lookup; source context was skipped.',
+    };
   const sourceSnippet = github.status === 'ok' ? github.snippet : undefined;
-  const hints = await createHints(trace, sourceSnippet, options.hintOptions);
+  const hasGeminiWindow = remainingBudgetMs(deadlineAt, now) >= MIN_REQUEST_START_WINDOW_MS;
+  const hintOptions = hasGeminiWindow
+    ? { ...options.hintOptions, deadlineAt, now }
+    : { ...options.hintOptions, apiKey: '', deadlineAt, now };
+  const hints = await createHints(trace, sourceSnippet, hintOptions);
 
   return {
     status: 'ok',

@@ -27,7 +27,7 @@ function requestJiraAsCurrentUser(uri, options) {
 /** Entry point declared for the Rovo action module in manifest.yml. */
 export async function rovoAction(payload, context) {
   return handleRovoAction(payload, context, {
-    loadIssueTextFn: (issueKey) => loadIssueText(issueKey, requestJiraAsCurrentUser),
+    loadIssueTextFn: (issueKey, options) => loadIssueText(issueKey, requestJiraAsCurrentUser, options),
     analyzeIssueFn: analyzeIssue,
   });
 }

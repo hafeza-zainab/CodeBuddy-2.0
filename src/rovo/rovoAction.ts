@@ -1,5 +1,6 @@
 import { analyzeIssue, type AnalyzeIssueResult } from '../services/analyzeIssue';
-import { loadIssueText, type IssueTextResult } from '../services/loadIssueText';
+import { ANALYSIS_DEADLINE_MS } from '../services/analysisBudget';
+import { loadIssueText, type IssueTextOptions, type IssueTextResult } from '../services/loadIssueText';
 
 type ActionPayload = {
   issueKey?: unknown;
@@ -13,7 +14,7 @@ type ActionContext = {
 };
 
 export interface RovoActionDependencies {
-  loadIssueTextFn?: (issueKey: string) => Promise<IssueTextResult>;
+  loadIssueTextFn?: (issueKey: string, options?: IssueTextOptions) => Promise<IssueTextResult>;
   analyzeIssueFn?: typeof analyzeIssue;
 }
 
@@ -32,11 +33,12 @@ export async function handleRovoAction(
   dependencies: RovoActionDependencies = {},
 ): Promise<AnalyzeIssueResult | { status: 'input-required' | 'issue-read-failed'; message: string }> {
   const analyze = dependencies.analyzeIssueFn ?? analyzeIssue;
+  const deadlineAt = Date.now() + ANALYSIS_DEADLINE_MS;
   const pastedTrace = typeof payload.trace === 'string'
     ? payload.trace.trim()
     : typeof payload.pastedTrace === 'string' ? payload.pastedTrace.trim() : '';
 
-  if (pastedTrace) return analyze(pastedTrace);
+  if (pastedTrace) return analyze(pastedTrace, { deadlineAt });
 
   const issueCandidate = payload.issueKey
     ?? payload.context?.jira?.issueKey
@@ -50,16 +52,19 @@ export async function handleRovoAction(
   }
 
   const fetchIssueText = dependencies.loadIssueTextFn
-    ?? ((key: string) => loadIssueText(key, async () => {
+    ?? ((key: string, options?: IssueTextOptions) => loadIssueText(key, async () => {
       throw new Error('Jira issue access is unavailable in this action context.');
-    }));
+    }, options));
   try {
-    const issueContent = await fetchIssueText(issueCandidate.trim());
-    return analyze(issueContent.text, { issueWarning: issueContent.warning });
-  } catch {
+    const issueContent = await fetchIssueText(issueCandidate.trim(), { deadlineAt });
+    return analyze(issueContent.text, { issueWarning: issueContent.warning, deadlineAt });
+  } catch (error) {
+    const detail = error instanceof Error && /^Could not load (?:the Jira issue description|Jira issue comments)/.test(error.message)
+      ? error.message
+      : 'Could not read the Jira issue after the permitted attempts.';
     return {
       status: 'issue-read-failed',
-      message: 'The current user could not read that Jira issue. Check the issue key and the user’s Jira access, or paste the stack trace directly.',
+      message: `${detail} Check the issue key and the user’s Jira access, or paste the stack trace directly.`,
     };
   }
 }

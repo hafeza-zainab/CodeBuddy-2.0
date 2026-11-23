@@ -117,6 +117,20 @@ test('falls back before a slow Gemini response completes even if the transport i
   assert.equal(result.fallbackReason, 'request-failed');
 });
 
+test('skips Gemini and uses templates when the overall deadline has expired', async () => {
+  let calls = 0;
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    deadlineAt: 1,
+    now: () => 2,
+    fetcher: async () => { calls += 1; return response({}); },
+  });
+
+  assert.equal(calls, 0);
+  assert.equal(result.source, 'template');
+  assert.equal(result.fallbackReason, 'deadline-exceeded');
+});
+
 test('falls back on malformed model output and tells the reader the example is generic', async () => {
   const result = await generateHints(sampleTrace(), 'const x = null;', {
     apiKey: 'test-key',

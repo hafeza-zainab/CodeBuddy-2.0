@@ -152,6 +152,6 @@ test('bounds each GitHub request and returns a status when the network stalls', 
       });
     },
   });
-  assert.equal(calls, 1);
+  assert.equal(calls, 2);
   assert.equal(result.status, 'request-failed');
 });

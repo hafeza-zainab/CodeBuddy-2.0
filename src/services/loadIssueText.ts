@@ -1,4 +1,12 @@
-import { ISSUE_REQUEST_TIMEOUT_MS, MAX_ISSUE_COMMENT_PAGES } from './analysisBudget';
+import {
+  JIRA_MAX_ATTEMPTS,
+  JIRA_REQUEST_TIMEOUT_MS,
+  JIRA_STAGE_BUDGET_MS,
+  MAX_ISSUE_COMMENT_PAGES,
+  MIN_CONFIGURED_TIMEOUT_MS,
+  MIN_REQUEST_START_WINDOW_MS,
+  remainingBudgetMs,
+} from './analysisBudget';
 
 export type JiraRequest = (uri: string, options?: RequestInit) => Promise<Response>;
 
@@ -10,6 +18,9 @@ export interface IssueTextResult {
 export interface IssueTextOptions {
   requestTimeoutMs?: number;
   maxCommentPages?: number;
+  stageBudgetMs?: number;
+  deadlineAt?: number;
+  now?: () => number;
 }
 
 interface JiraIssueResponse {
@@ -91,25 +102,57 @@ interface JiraJsonResponse<T> {
 
 /** Bound both the Jira request and response decoding so slow bodies cannot
  * consume the entire Forge invocation after the network headers arrive. */
-function requestJiraJson<T>(requestJira: JiraRequest, uri: string, timeoutMs: number): Promise<JiraJsonResponse<T>> {
-  const controller = new AbortController();
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timeoutId = setTimeout(() => {
-      controller.abort();
-      reject(new Error(`Jira request timed out after ${timeoutMs}ms.`));
-    }, timeoutMs);
-  });
+async function requestJiraJson<T>(
+  requestJira: JiraRequest,
+  uri: string,
+  resource: string,
+  requestTimeoutMs: number,
+  deadlineAt: number,
+  now: () => number,
+): Promise<JiraJsonResponse<T>> {
+  let lastFailure: 'timeout' | 'network' | undefined;
+  for (let attempt = 1; attempt <= JIRA_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = remainingBudgetMs(deadlineAt, now);
+    if (remainingMs < MIN_REQUEST_START_WINDOW_MS) {
+      throw new Error(`Could not load ${resource}: the Jira time budget was exhausted${lastFailure ? ` after ${attempt - 1} attempt(s) (${lastFailure}).` : '.'}`);
+    }
+    const timeoutMs = Math.min(requestTimeoutMs, remainingMs);
+    const controller = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        const error = new Error('Jira request timed out.');
+        error.name = 'TimeoutError';
+        reject(error);
+      }, timeoutMs);
+    });
 
-  const request = (async () => {
-    const response = await requestJira(uri, { signal: controller.signal });
-    const data = response.ok ? await response.json() as T : null;
-    return { response, data };
-  })();
+    const request = (async () => {
+      const response = await requestJira(uri, { signal: controller.signal });
+      const data = response.ok ? await response.json() as T : null;
+      return { response, data };
+    })();
 
-  return Promise.race([request, timeout]).finally(() => {
-    if (timeoutId !== undefined) clearTimeout(timeoutId);
-  });
+    try {
+      const result = await Promise.race([request, timeout]);
+      if (result.response.status >= 500 && attempt < JIRA_MAX_ATTEMPTS
+        && remainingBudgetMs(deadlineAt, now) >= MIN_REQUEST_START_WINDOW_MS) continue;
+      return result;
+    } catch {
+      lastFailure = timedOut ? 'timeout' : 'network';
+      const canRetry = attempt < JIRA_MAX_ATTEMPTS
+        && timedOut
+        && remainingBudgetMs(deadlineAt, now) >= MIN_REQUEST_START_WINDOW_MS;
+      if (canRetry) continue;
+      throw new Error(`Could not load ${resource} after ${attempt} attempt(s): ${lastFailure === 'timeout' ? 'the Jira request timed out.' : 'the Jira request failed.'}`);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }
+  }
+  throw new Error(`Could not load ${resource}: Jira retries were exhausted.`);
 }
 
 /** Read issue text through the current user's permissions within a bounded comment-page budget. */
@@ -124,12 +167,20 @@ export async function loadIssueText(
   }
 
   const encodedKey = encodeURIComponent(safeIssueKey);
-  const timeoutMs = Math.max(1, Math.floor(options.requestTimeoutMs ?? ISSUE_REQUEST_TIMEOUT_MS));
+  const now = options.now ?? Date.now;
+  const stageDeadlineAt = Math.min(
+    options.deadlineAt ?? Number.POSITIVE_INFINITY,
+    now() + Math.max(MIN_CONFIGURED_TIMEOUT_MS, Math.floor(options.stageBudgetMs ?? JIRA_STAGE_BUDGET_MS)),
+  );
+  const requestTimeoutMs = Math.max(MIN_CONFIGURED_TIMEOUT_MS, Math.floor(options.requestTimeoutMs ?? JIRA_REQUEST_TIMEOUT_MS));
   const maxCommentPages = Math.max(1, Math.floor(options.maxCommentPages ?? MAX_ISSUE_COMMENT_PAGES));
   const issueResult = await requestJiraJson<JiraIssueResponse>(
     requestJira,
     `/rest/api/3/issue/${encodedKey}?fields=description`,
-    timeoutMs,
+    'the Jira issue description',
+    requestTimeoutMs,
+    stageDeadlineAt,
+    now,
   );
   const issueResponse = issueResult.response;
   requireSuccessfulResponse(issueResponse, 'issue description');
@@ -143,7 +194,9 @@ export async function loadIssueText(
   do {
     const commentsUri = `/rest/api/3/issue/${encodedKey}/comment?startAt=${startAt}&maxResults=${COMMENT_PAGE_SIZE}`;
     try {
-      const { response, data } = await requestJiraJson<JiraCommentPage>(requestJira, commentsUri, timeoutMs);
+      const { response, data } = await requestJiraJson<JiraCommentPage>(
+        requestJira, commentsUri, 'Jira issue comments', requestTimeoutMs, stageDeadlineAt, now,
+      );
       if (!response.ok) {
         warning = `Jira returned HTTP ${response.status} while reading issue comments; the description was still analyzed.`;
         break;
@@ -165,8 +218,9 @@ export async function loadIssueText(
         warning = `Only the first ${maxCommentPages * COMMENT_PAGE_SIZE} Jira comments were analyzed to stay within the Forge time budget.`;
         break;
       }
-    } catch {
-      warning = 'Jira could not load all comments; the available issue text was still analyzed.';
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'The Jira request failed.';
+      warning = `${detail} The issue description was still analyzed.`;
       break;
     }
   } while (startAt < total);

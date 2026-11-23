@@ -1,5 +1,13 @@
 import type { ParsedStackTrace, TraceLanguage } from '../parser/parseStackTrace';
-import { GEMINI_MAX_ATTEMPTS, GEMINI_REQUEST_TIMEOUT_MS, GEMINI_RETRY_DELAY_MS } from '../services/analysisBudget';
+import {
+  GEMINI_MAX_ATTEMPTS,
+  GEMINI_REQUEST_TIMEOUT_MS,
+  GEMINI_RETRY_DELAY_MS,
+  GEMINI_STAGE_BUDGET_MS,
+  MIN_CONFIGURED_TIMEOUT_MS,
+  MIN_REQUEST_START_WINDOW_MS,
+  remainingBudgetMs,
+} from '../services/analysisBudget';
 
 export interface HintSet {
   nudge: string;
@@ -8,7 +16,7 @@ export interface HintSet {
 }
 
 export type HintSource = 'ai' | 'template';
-export type FallbackReason = 'no-api-key' | 'rate-limited' | 'request-failed' | 'invalid-response';
+export type FallbackReason = 'no-api-key' | 'rate-limited' | 'request-failed' | 'invalid-response' | 'deadline-exceeded';
 
 export interface HintResult extends HintSet {
   source: HintSource;
@@ -21,6 +29,9 @@ export interface HintEngineOptions {
   timeoutMs?: number;
   retryDelayMs?: number;
   model?: string;
+  stageBudgetMs?: number;
+  deadlineAt?: number;
+  now?: () => number;
 }
 
 interface FallbackTemplate extends HintSet {
@@ -224,16 +235,24 @@ async function requestGemini(
   const timeoutMs = options.timeoutMs ?? GEMINI_REQUEST_TIMEOUT_MS;
   const retryDelayMs = options.retryDelayMs ?? GEMINI_RETRY_DELAY_MS;
   const model = options.model ?? MODEL;
+  const now = options.now ?? Date.now;
+  const deadlineAt = Math.min(
+    options.deadlineAt ?? Number.POSITIVE_INFINITY,
+    now() + Math.max(MIN_CONFIGURED_TIMEOUT_MS, Math.floor(options.stageBudgetMs ?? GEMINI_STAGE_BUDGET_MS)),
+  );
   const url = `${API_ROOT}/${encodeURIComponent(model)}:generateContent`;
 
   for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = remainingBudgetMs(deadlineAt, now);
+    if (remainingMs < MIN_REQUEST_START_WINDOW_MS) return { hints: null, reason: 'deadline-exceeded' };
+    const attemptTimeoutMs = Math.min(timeoutMs, remainingMs);
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_resolve, reject) => {
       timeoutId = setTimeout(() => {
         controller.abort();
         reject(new Error('Gemini request timed out.'));
-      }, timeoutMs);
+      }, attemptTimeoutMs);
     });
     let retryableFailure = false;
 
@@ -275,8 +294,12 @@ async function requestGemini(
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
 
-    if (retryableFailure && attempt < GEMINI_MAX_ATTEMPTS - 1 && retryDelayMs > 0) {
-      await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+    if (retryableFailure && attempt < GEMINI_MAX_ATTEMPTS - 1) {
+      const timeLeft = remainingBudgetMs(deadlineAt, now);
+      if (timeLeft < retryDelayMs + MIN_REQUEST_START_WINDOW_MS) {
+        return { hints: null, reason: 'deadline-exceeded' };
+      }
+      if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }
   return { hints: null, reason: 'request-failed' };
@@ -288,6 +311,11 @@ export async function generateHints(
   sourceSnippet?: string,
   options: HintEngineOptions = {},
 ): Promise<HintResult> {
+  const now = options.now ?? Date.now;
+  if (options.deadlineAt !== undefined
+    && remainingBudgetMs(options.deadlineAt, now) < MIN_REQUEST_START_WINDOW_MS) {
+    return { ...buildTemplateHints(trace, sourceSnippet), source: 'template', fallbackReason: 'deadline-exceeded' };
+  }
   const apiKey = getApiKey(options.apiKey);
   if (!apiKey) return { ...buildTemplateHints(trace, sourceSnippet), source: 'template', fallbackReason: 'no-api-key' };
 
