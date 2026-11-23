@@ -47,6 +47,22 @@ test('includes deterministic fallback templates for common errors across all sup
   }
 });
 
+test('tailors the Python KeyError fallback to the missing key in the trace', async () => {
+  const trace = parseStackTrace([
+    'File "src/buggy_app.py", line 42, in handle_request',
+    'return int(payload["count"])',
+    "KeyError: 'count'",
+  ].join('\n'));
+  const result = await generateHints(trace, undefined, { apiKey: '' });
+
+  assert.equal(result.source, 'template');
+  assert.match(result.pointer, /lookup for "count"/);
+  assert.match(result.fix, /if "count" not in payload:/);
+  assert.match(result.fix, /Required field 'count' is missing/);
+  assert.match(result.fix, /return int\(payload\["count"\]\)/);
+  assert.doesNotMatch(result.fix, /email|user\.get/);
+});
+
 test('uses a valid Gemini response and sends the encrypted key only as a request header', async () => {
   let request;
   const result = await generateHints(sampleTrace(), 'name = "Ari"', {

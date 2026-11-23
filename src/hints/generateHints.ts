@@ -175,8 +175,17 @@ function templateKey(language: TraceLanguage, errorType: string): string {
   return `${language}.${errorType}`;
 }
 
+/** Python formats a missing mapping key as a quoted exception message. */
+function missingPythonKey(trace: ParsedStackTrace): string | null {
+  if (trace.language !== 'python' || trace.errorType !== 'KeyError') return null;
+  const match = /^(['"])([A-Za-z_][A-Za-z0-9_]*)\1$/.exec(trace.message.trim());
+  return match?.[2] ?? null;
+}
+
 function buildTemplateHints(trace: ParsedStackTrace, sourceSnippet?: string): HintSet {
   const template = TEMPLATES[templateKey(trace.language, trace.errorType)];
+  const missingKey = missingPythonKey(trace);
+  const keyLiteral = missingKey ? JSON.stringify(missingKey) : undefined;
   const location = trace.relevantFrame
     ? ` ${trace.relevantFrame.filePath}:${trace.relevantFrame.line}`
     : '';
@@ -187,8 +196,12 @@ function buildTemplateHints(trace: ParsedStackTrace, sourceSnippet?: string): Hi
 
   return {
     nudge: template?.nudge ?? 'What assumption about the input, value, or program state could be false on this path?',
-    pointer: `${template?.pointer ?? `The ${trace.errorType} at this frame signals that an operation received an unexpected value or state.`}${location}`,
-    fix: `${template?.fix ?? `Check the operation that raised ${trace.errorType}, validate its inputs, and handle the failing case explicitly. Example:\n\`\`\`text\n${code}\n\`\`\``}${uncertainty}`,
+    pointer: `${missingKey
+      ? `The mapping lookup for ${keyLiteral} failed because that key is absent from the current payload.`
+      : template?.pointer ?? `The ${trace.errorType} at this frame signals that an operation received an unexpected value or state.`}${location}`,
+    fix: `${missingKey
+      ? `The trace identifies ${keyLiteral} as missing. Validate this required field before converting it, or choose a documented default if it is optional. Example:\n\`\`\`python\nif ${keyLiteral} not in payload:\n    raise ValueError(${JSON.stringify(`Required field '${missingKey}' is missing`)})\nreturn int(payload[${keyLiteral}])\n\`\`\``
+      : template?.fix ?? `Check the operation that raised ${trace.errorType}, validate its inputs, and handle the failing case explicitly. Example:\n\`\`\`text\n${code}\n\`\`\``}${uncertainty}`,
   };
 }
 
