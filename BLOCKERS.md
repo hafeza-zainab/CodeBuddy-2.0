@@ -1,5 +1,7 @@
 ## Current blockers
 
+- **Persistent Gemini hint cache is deferred.** Forge's `@forge/kvs` storage requires the `storage:app` scope. Adding it would require updating permissions and an installation upgrade approval, so no KVS dependency or scope was added. The requested cache test is therefore intentionally not included. Revisit if you want to approve that scope and upgrade the Jira installation.
+
 - **Forge CLI authentication is unavailable in the Codex shell.** `FORGE_EMAIL` and `FORGE_API_TOKEN` are absent here. `forge install list --verbose --json` and `forge lint --verbose` fail while accessing the local credential vault with: `Keytar error detected: Access is denied.` The CLI also reports: `Failed to fetch Forge dynamic configurations. Some preview features may be unavailable. Rerun the command to retry.` Deployment and installation upgrade have not been run from this shell.
 - Run these commands in the authenticated Administrator PowerShell session from the app root:
 

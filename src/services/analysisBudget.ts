@@ -22,11 +22,18 @@ export const GITHUB_MAX_ATTEMPTS = 2;
 
 // Gemini gets at most eight seconds total; each attempt is bounded to four seconds.
 export const GEMINI_STAGE_BUDGET_MS = 8_000;
-export const GEMINI_REQUEST_TIMEOUT_MS = 4_000;
-export const GEMINI_MAX_ATTEMPTS = 2;
-export const GEMINI_RETRY_DELAY_MS = 100;
+// Rotate across Google models rather than spending the whole budget retrying one busy model.
+// Google documents free standard-tier text input/output for all three model IDs below.
+export const GEMINI_MODEL_CHAIN = [
+  'gemini-3.1-flash-lite',
+  'gemini-3.5-flash-lite',
+  'gemini-3.8-flash',
+] as const;
+export const GEMINI_REQUEST_TIMEOUT_MS = 2_200;
+export const GEMINI_MAX_ATTEMPTS = GEMINI_MODEL_CHAIN.length;
+export const GEMINI_RETRY_DELAY_MS = 350;
 
-/** Worst-case phase budgets, including the single retry in each remote phase. */
+/** Worst-case phase budgets, including GitHub retry and Gemini model rotation. */
 export const MAX_SEQUENTIAL_NETWORK_BUDGET_MS = (
   JIRA_STAGE_BUDGET_MS + GITHUB_STAGE_BUDGET_MS + GEMINI_STAGE_BUDGET_MS
 );

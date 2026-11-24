@@ -145,7 +145,7 @@ const App = () => {
           <Text>{github.message} The hint templates still work without repository context.</Text>
         </SectionMessage>
       )}
-      <Text>Hint source: {hints.source === 'ai' ? 'Gemini' : 'template fallback'}.</Text>
+      <Text>Hint source: {hints.source === 'ai' ? `AI (${hints.model ?? 'Gemini'})` : 'template fallback'}.</Text>
       {hints.source === 'template' && hints.fallbackReason ? (
         <Text size="small" color="color.text.subtle">Fallback reason: {hints.fallbackReason}</Text>
       ) : null}

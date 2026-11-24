@@ -107,12 +107,58 @@ test('reports a safe Gemini HTTP status and still calls Gemini without repositor
     });
     assert.equal(calls, 1);
     assert.equal(result.source, 'template');
-    assert.equal(result.fallbackReason, 'gemini_error: 403');
-    assert.match(logs[0], /fallback_reason=gemini_error: 403/);
+    assert.equal(result.fallbackReason, 'gemini-3.1-flash-lite: 403');
+    assert.match(logs[0], /fallback_reason=gemini-3\.1-flash-lite: 403/);
     assert.doesNotMatch(logs.join(' '), /private-test-key/);
   } finally {
     console.log = originalLog;
   }
+});
+
+test('moves from a 503 model to the next free model and reports the model that answered', async () => {
+  const urls = [];
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    retryDelayMs: 0,
+    fetcher: async (url) => {
+      urls.push(url);
+      if (urls.length === 1) return response({}, 503);
+      return response({ candidates: [{ content: { parts: [{ text: '{"nudge":"n","pointer":"p","fix":"f"}' }] } }] });
+    },
+  });
+
+  assert.equal(urls.length, 2);
+  assert.match(urls[0], /gemini-3\.1-flash-lite/);
+  assert.match(urls[1], /gemini-3\.5-flash-lite/);
+  assert.equal(result.source, 'ai');
+  assert.equal(result.model, 'gemini-3.5-flash-lite');
+});
+
+test('reports each model failure after exhausting the free model chain', async () => {
+  const statuses = [503, 429, 503];
+  const urls = [];
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    retryDelayMs: 0,
+    fetcher: async (url) => {
+      urls.push(url);
+      return response({}, statuses[urls.length - 1]);
+    },
+  });
+
+  assert.equal(urls.length, 3);
+  assert.equal(result.source, 'template');
+  assert.equal(result.fallbackReason, 'gemini-3.1-flash-lite: 503, gemini-3.5-flash-lite: 429, gemini-3.8-flash: 503');
+});
+
+test('does not retry a non-transient Gemini 403 response', async () => {
+  let calls = 0;
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    fetcher: async () => { calls += 1; return response({}, 403); },
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.fallbackReason, 'gemini-3.1-flash-lite: 403');
 });
 
 test('uses a valid Gemini response and sends the encrypted key only as a request header', async () => {
@@ -159,9 +205,9 @@ test('retries a timed-out request once, then falls back without exposing transpo
       });
     },
   });
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'timeout');
+  assert.equal(result.fallbackReason, 'gemini-3.1-flash-lite: timeout, gemini-3.5-flash-lite: timeout, gemini-3.8-flash: timeout');
   assert.equal(JSON.stringify(result).includes('transport detail'), false);
 });
 
@@ -180,9 +226,9 @@ test('falls back before a slow Gemini response completes even if the transport i
     },
   });
 
-  assert.equal(calls, 2);
+  assert.equal(calls, 3);
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'timeout');
+  assert.equal(result.fallbackReason, 'gemini-3.1-flash-lite: timeout, gemini-3.5-flash-lite: timeout, gemini-3.8-flash: timeout');
 });
 
 test('skips Gemini and uses templates when the overall deadline has expired', async () => {
@@ -205,6 +251,6 @@ test('falls back on malformed model output and tells the reader the example is g
     fetcher: async () => response({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }),
   });
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'invalid_response');
+  assert.equal(result.fallbackReason, 'gemini-3.1-flash-lite: invalid_response');
   assert.match(result.fix, /general example/);
 });
