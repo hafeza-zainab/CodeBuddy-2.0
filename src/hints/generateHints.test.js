@@ -16,6 +16,21 @@ function response(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 }
 
+function generatedHints(fields = {}) {
+  return {
+    nudge: 'Question?',
+    pointer: 'src/app.py:9 has the failing lookup.',
+    fix_explanation: 'Check the value before using it.',
+    fix_code: 'value = payload.get("count")',
+    fix_language: 'python',
+    ...fields,
+  };
+}
+
+function generatedResponse(fields) {
+  return response({ candidates: [{ content: { parts: [{ text: JSON.stringify(generatedHints(fields)) }] } }] });
+}
+
 test('returns a useful template hint without making a request when no key is configured', async () => {
   let calls = 0;
   const result = await generateHints(sampleTrace(), undefined, {
@@ -27,6 +42,9 @@ test('returns a useful template hint without making a request when no key is con
   assert.match(result.nudge, /name/i);
   assert.match(result.pointer, /src\/app.py:9/);
   assert.match(result.fix, /user_name/);
+  assert.doesNotMatch(`${result.nudge} ${result.pointer} ${result.fixExplanation}`, /[*#`]/);
+  assert.doesNotMatch(result.fixExplanation, /```/);
+  assert.match(result.fixCode, /user_name/);
   assert.equal(calls, 0);
 });
 
@@ -123,7 +141,7 @@ test('moves from a 503 model to the next free model and reports the model that a
     fetcher: async (url) => {
       urls.push(url);
       if (urls.length === 1) return response({}, 503);
-      return response({ candidates: [{ content: { parts: [{ text: '{"nudge":"n","pointer":"p","fix":"f"}' }] } }] });
+      return generatedResponse({ nudge: 'n', pointer: 'p', fix_explanation: 'f', fix_code: '', fix_language: 'python' });
     },
   });
 
@@ -167,14 +185,70 @@ test('uses a valid Gemini response and sends the encrypted key only as a request
     apiKey: 'secret-test-value',
     fetcher: async (url, init) => {
       request = { url, init };
-      return response({ candidates: [{ content: { parts: [{ text: JSON.stringify({ nudge: 'Question?', pointer: 'src/app.py:9', fix: 'Use the right name.' }) }] } }] });
+      return generatedResponse({ nudge: 'Question?', pointer: 'src/app.py:9', fix_explanation: 'Use the right name.', fix_code: '', fix_language: 'python' });
     },
   });
   assert.equal(result.source, 'ai');
   assert.equal(result.nudge, 'Question?');
+  assert.equal(result.fixExplanation, 'Use the right name.');
+  assert.equal(JSON.parse(request.init.body).generationConfig.responseMimeType, 'application/json');
+  assert.deepEqual(JSON.parse(request.init.body).generationConfig.responseSchema.required, [
+    'nudge', 'pointer', 'fix_explanation', 'fix_code', 'fix_language',
+  ]);
   assert.equal(request.init.headers['x-goog-api-key'], 'secret-test-value');
   assert.equal(request.init.body.includes('secret-test-value'), false);
   assert.match(request.url, /:generateContent$/);
+});
+
+test('accepts a structured JSON object wrapped in a Markdown JSON fence', async () => {
+  const fields = generatedHints({ fix_code: 'return int(payload["count"])' });
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    fetcher: async () => response({ candidates: [{ content: { parts: [{ text: `\`\`\`json\n${JSON.stringify(fields)}\n\`\`\`` }] } }] }),
+  });
+
+  assert.equal(result.source, 'ai');
+  assert.equal(result.fixCode, 'return int(payload["count"])');
+  assert.equal(result.fixLanguage, 'python');
+});
+
+test('sanitizes Markdown from every model prose field while preserving multiline code', async () => {
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    fetcher: async () => generatedResponse({
+      nudge: '**What** should happen to `payload` here?',
+      pointer: '## Pointer\nThe `count` key is missing.',
+      fix_explanation: 'The **`count`** key is absent. Use *a deliberate default* only if zero is correct.',
+      fix_code: 'if "count" not in payload:\n    raise ValueError("count is required")\nreturn int(payload["count"])',
+    }),
+  });
+
+  assert.equal(result.nudge, 'What should happen to payload here?');
+  assert.equal(result.pointer, 'Pointer\nThe count key is missing.');
+  assert.equal(result.fixExplanation, 'The count key is absent. Use a deliberate default only if zero is correct.');
+  assert.equal(result.fixCode, 'if "count" not in payload:\n    raise ValueError("count is required")\nreturn int(payload["count"])');
+  assert.doesNotMatch(`${result.nudge} ${result.pointer} ${result.fixExplanation}`, /[*#`]/);
+});
+
+test('leniently extracts the first JSON object from surrounding model text', async () => {
+  const fields = generatedHints({ nudge: 'Nudge from JSON.' });
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    fetcher: async () => response({ candidates: [{ content: { parts: [{ text: `Here is the result:\n${JSON.stringify(fields)}\nThanks.` }] } }] }),
+  });
+  assert.equal(result.source, 'ai');
+  assert.equal(result.nudge, 'Nudge from JSON.');
+});
+
+test('uses the template fallback with bad_ai_output when structured fields are missing', async () => {
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    fetcher: async () => response({ candidates: [{ content: { parts: [{ text: '{"nudge":"Question?","pointer":"src/app.py:9"}' }] } }] }),
+  });
+  assert.equal(result.source, 'template');
+  assert.equal(result.fallbackReason, 'bad_ai_output');
+  assert.ok(result.fixExplanation);
+  assert.ok(result.fixCode);
 });
 
 test('retries a rate-limited request once and then uses a successful answer', async () => {
@@ -185,7 +259,7 @@ test('retries a rate-limited request once and then uses a successful answer', as
     fetcher: async () => {
       calls += 1;
       if (calls === 1) return response({}, 429);
-      return response({ candidates: [{ content: { parts: [{ text: '{"nudge":"n","pointer":"p","fix":"f"}' }] } }] });
+      return generatedResponse({ nudge: 'n', pointer: 'p', fix_explanation: 'f', fix_code: '', fix_language: 'python' });
     },
   });
   assert.equal(calls, 2);
@@ -222,7 +296,7 @@ test('falls back before a slow Gemini response completes even if the transport i
     fetcher: async () => {
       calls += 1;
       await new Promise((resolve) => setTimeout(resolve, 200));
-      return response({ candidates: [{ content: { parts: [{ text: '{"nudge":"n","pointer":"p","fix":"f"}' }] } }] });
+      return generatedResponse({ nudge: 'n', pointer: 'p', fix_explanation: 'f', fix_code: '', fix_language: 'python' });
     },
   });
 
@@ -251,6 +325,6 @@ test('falls back on malformed model output and tells the reader the example is g
     fetcher: async () => response({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }),
   });
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'gemini-3.1-flash-lite: invalid_response');
+  assert.equal(result.fallbackReason, 'bad_ai_output');
   assert.match(result.fix, /general example/);
 });

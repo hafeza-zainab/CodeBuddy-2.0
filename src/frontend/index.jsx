@@ -12,33 +12,6 @@ import { invoke, requestJira } from '@forge/bridge';
 import { loadIssueText } from '../services/loadIssueText';
 import { ANALYSIS_DEADLINE_MS } from '../services/analysisBudget';
 
-/** Render fenced examples as native UI Kit code instead of showing Markdown syntax. */
-function renderHint(value) {
-  const fence = /```([A-Za-z0-9+#.-]*)\s*\n([\s\S]*?)```/g;
-  const segments = [];
-  let cursor = 0;
-  let match;
-
-  while ((match = fence.exec(value)) !== null) {
-    if (match.index > cursor) segments.push({ text: value.slice(cursor, match.index).trim() });
-    segments.push({ language: match[1] || 'text', code: match[2].replace(/\n$/, '') });
-    cursor = fence.lastIndex;
-  }
-
-  if (segments.length === 0) return <Text>{value}</Text>;
-  if (cursor < value.length) segments.push({ text: value.slice(cursor).trim() });
-
-  return (
-    <Stack space="space.100">
-      {segments.map((segment, index) => (segment.code !== undefined
-        ? <CodeBlock key={`code-${index}`} language={segment.language} text={segment.code} />
-        : segment.text
-          ? <Text key={`text-${index}`}>{segment.text}</Text>
-          : null))}
-    </Stack>
-  );
-}
-
 /** Keep the view states explicit so a Jira or service failure never looks like an empty success. */
 const App = () => {
   const productContext = useProductContext();
@@ -154,7 +127,8 @@ const App = () => {
       <Heading as="h4">2. Pointer</Heading>
       <Text>{hints.pointer}</Text>
       <Heading as="h4">3. Full fix</Heading>
-      {renderHint(hints.fix)}
+      <Text>{hints.fixExplanation ?? hints.fix}</Text>
+      {hints.fixCode ? <CodeBlock language={hints.fixLanguage ?? trace.language} text={hints.fixCode} /> : null}
     </Stack>
   );
 };
