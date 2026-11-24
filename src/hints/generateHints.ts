@@ -16,7 +16,14 @@ export interface HintSet {
 }
 
 export type HintSource = 'ai' | 'template';
-export type FallbackReason = 'no-api-key' | 'rate-limited' | 'request-failed' | 'invalid-response' | 'deadline-exceeded';
+export type FallbackReason =
+  | 'no_key'
+  | 'timeout'
+  | 'rate_limited'
+  | 'request_failed'
+  | 'invalid_response'
+  | 'deadline_exceeded'
+  | `gemini_error: ${number}`;
 
 export interface HintResult extends HintSet {
   source: HintSource;
@@ -175,20 +182,186 @@ function templateKey(language: TraceLanguage, errorType: string): string {
   return `${language}.${errorType}`;
 }
 
-/** Python formats a missing mapping key as a quoted exception message. */
-function missingPythonKey(trace: ParsedStackTrace): string | null {
-  if (trace.language !== 'python' || trace.errorType !== 'KeyError') return null;
-  const match = /^(['"])([A-Za-z_][A-Za-z0-9_]*)\1$/.exec(trace.message.trim());
+function capture(message: string, pattern: RegExp): string | null {
+  return pattern.exec(message)?.[1] ?? null;
+}
+
+function quotedValue(message: string): string | null {
+  const match = /^(['"])(.*?)\1$/.exec(message.trim());
   return match?.[2] ?? null;
+}
+
+function frameLocation(trace: ParsedStackTrace): string {
+  const frame = trace.relevantFrame;
+  if (!frame) return '';
+  return `${frame.filePath}:${frame.line}${frame.functionName ? ` in ${frame.functionName}` : ''}`;
+}
+
+function sourceLine(trace: ParsedStackTrace): string | null {
+  return trace.sourceLine?.trim() || null;
+}
+
+function indexAccess(line: string | null): { collection: string; index: string } | null {
+  if (!line) return null;
+  const match = /([A-Za-z_]\w*)\s*\[\s*([A-Za-z_]\w*|\d+)\s*\]/.exec(line);
+  return match ? { collection: match[1], index: match[2] } : null;
+}
+
+function binaryOperands(line: string | null, operator: '+' | '/' = '+'): { left: string; right: string } | null {
+  if (!line) return null;
+  const escaped = operator === '+' ? '\\+' : '\\/';
+  const match = new RegExp(`\\b([A-Za-z_]\\w*)\\s*${escaped}\\s*([A-Za-z_]\\w*)\\b`).exec(line);
+  return match ? { left: match[1], right: match[2] } : null;
+}
+
+function tracedPointer(trace: ParsedStackTrace, cause: string): string {
+  const location = frameLocation(trace);
+  return location ? `${cause} At ${location}.` : `${cause}.`;
+}
+
+function tailoredHint(trace: ParsedStackTrace): { pointer?: string; fix?: string } {
+  const line = sourceLine(trace);
+  const location = frameLocation(trace);
+
+  if (trace.language === 'python' && trace.errorType === 'KeyError') {
+    const key = quotedValue(trace.message);
+    if (key) {
+      const literal = JSON.stringify(key);
+      const access = line ? /([A-Za-z_]\w*)\s*\[\s*(['"])(.*?)\2\s*\]/.exec(line) : null;
+      const mapping = access?.[1] ?? 'payload';
+      return {
+        pointer: line
+          ? `Line ${trace.relevantFrame?.line ?? '?'} reads ${line}; key ${literal} is missing from ${mapping}${location ? ` at ${location}` : ''}.`
+          : tracedPointer(trace, `The mapping lookup for key ${literal} fails because that key is absent`),
+        fix: `The trace identifies ${literal} as missing. Validate this required field before converting it, or choose a documented default if it is optional. Example:\n\`\`\`python\nif ${literal} not in ${mapping}:\n    raise ValueError(${JSON.stringify(`Required field '${key}' is missing`)})\n${line ?? `value = ${mapping}[${literal}]`}\n\`\`\``,
+      };
+    }
+  }
+
+  if (trace.language === 'python' && trace.errorType === 'IndexError') {
+    const access = indexAccess(line);
+    if (access) {
+      const guard = /^\d+$/.test(access.index)
+        ? `if len(${access.collection}) <= ${access.index}:\n    raise IndexError("index out of range")`
+        : `if not (0 <= ${access.index} < len(${access.collection})):\n    raise IndexError("index out of range")`;
+      return {
+        pointer: tracedPointer(trace, `The source statement ${line} indexes ${access.collection} with ${access.index}, but that index is outside the available items`),
+        fix: `Check the actual index used by ${line} before reading the collection. Example:\n\`\`\`python\n${guard}\nvalue = ${access.collection}[${access.index}]\n\`\`\``,
+      };
+    }
+  }
+
+  if (trace.language === 'python' && trace.errorType === 'TypeError') {
+    const operands = binaryOperands(line);
+    if (line && operands) {
+      return {
+        pointer: tracedPointer(trace, `The expression ${line} combines values with incompatible types`),
+        fix: `The trace points to ${line}. If ${operands.right} should be numeric, convert and validate that input before this operation. Example:\n\`\`\`python\ntry:\n    ${operands.right} = int(${operands.right})\nexcept (TypeError, ValueError):\n    raise ValueError(${JSON.stringify(`${operands.right} must be a number`)})\n${line}\n\`\`\``,
+      };
+    }
+  }
+
+  if (trace.language === 'python' && trace.errorType === 'AttributeError') {
+    const attribute = capture(trace.message, /has no attribute ['"]([^'"]+)['"]/) ?? capture(trace.message, /attribute ['"]([^'"]+)['"]/) ;
+    const access = line ? /([A-Za-z_]\w*)\.([A-Za-z_]\w*)/.exec(line) : null;
+    const receiver = access?.[1];
+    const name = access?.[2] ?? attribute;
+    if (name) {
+      const expression = receiver ? `${receiver}.${name}` : name;
+      return {
+        pointer: tracedPointer(trace, line
+          ? `The source statement ${line} reads attribute ${JSON.stringify(name)} from ${receiver}, which does not have that attribute`
+          : `This value has no attribute ${JSON.stringify(name)}`),
+        fix: receiver
+          ? `Validate that ${receiver} provides ${JSON.stringify(name)} before using ${expression}. Example:\n\`\`\`python\nif not hasattr(${receiver}, ${JSON.stringify(name)}):\n    raise ValueError(${JSON.stringify(`${receiver} must provide ${name}`)})\n${line}\n\`\`\``
+          : `Check the value type and initialize or validate the attribute ${JSON.stringify(name)} before using it.`,
+      };
+    }
+  }
+
+  if (trace.language === 'python' && trace.errorType === 'NameError') {
+    const name = capture(trace.message, /name ['"]([^'"]+)['"] is not defined/);
+    if (name) {
+      return {
+        pointer: tracedPointer(trace, `${line ? `The statement ${line} ` : ''}reads name ${JSON.stringify(name)}, but that name is not defined in this scope`),
+        fix: `Define or import ${JSON.stringify(name)} in the scope where ${line ?? 'the failing statement'} uses it. Check the spelling and assignment order before adding a new value.`,
+      };
+    }
+  }
+
+  if (trace.language === 'python' && trace.errorType === 'ZeroDivisionError') {
+    const operands = binaryOperands(line, '/');
+    if (operands) {
+      return {
+        pointer: tracedPointer(trace, `The denominator ${operands.right} is zero in ${line}`),
+        fix: `Check ${operands.right} before evaluating ${line}. Example:\n\`\`\`python\nif ${operands.right} == 0:\n    raise ValueError(${JSON.stringify(`${operands.right} must not be zero`)})\n${line}\n\`\`\``,
+      };
+    }
+  }
+
+  if (trace.language === 'python' && trace.errorType === 'ImportError') {
+    const importMatch = /cannot import name ['"]([^'"]+)['"] from ['"]([^'"]+)['"]/.exec(trace.message);
+    if (importMatch) {
+      const [, symbol, module] = importMatch;
+      return {
+        pointer: tracedPointer(trace, `The import requests ${JSON.stringify(symbol)} from module ${JSON.stringify(module)}, but that module does not expose the name`),
+        fix: `Confirm that ${JSON.stringify(module)} defines and exports ${JSON.stringify(symbol)}. If the module exposes a differently named function, update this import to that exact name.`,
+      };
+    }
+    const missingModule = capture(trace.message, /No module named ['"]([^'"]+)['"]?/);
+    if (missingModule) {
+      return {
+        pointer: tracedPointer(trace, `Python cannot find module ${JSON.stringify(missingModule)} at the import statement`),
+        fix: `Check that ${JSON.stringify(missingModule)} is the intended package/module name and that it is included in the environment where this file runs.`,
+      };
+    }
+  }
+
+  if (trace.language === 'java' && trace.errorType === 'NullPointerException') {
+    const nullVariable = capture(trace.message, /because ['"]([^'"]+)['"] is null/);
+    const invocation = capture(trace.message, /Cannot invoke ['"]([^'"]+)['"] because/);
+    if (nullVariable) {
+      const method = invocation?.replace(/^.*\./, '').replace(/\(.*$/, '');
+      const call = method ? `${nullVariable}.${method}()` : null;
+      return {
+        pointer: tracedPointer(trace, `${JSON.stringify(nullVariable)} is null${call ? ` before ${call}` : ' when the code dereferences it'}`),
+        fix: `Validate ${nullVariable} before dereferencing it. Example:\n\`\`\`java\nif (${nullVariable} == null) {\n    throw new IllegalArgumentException(${JSON.stringify(`${nullVariable} is required`)});\n}\n${call ?? '// continue with the operation that needs ' + nullVariable}\n\`\`\``,
+      };
+    }
+  }
+
+  if (trace.language === 'javascript' && trace.errorType === 'ReferenceError') {
+    const name = capture(trace.message, /(?:^|\s)([A-Za-z_$][\w$]*) is not defined/);
+    if (name) {
+      return {
+        pointer: tracedPointer(trace, `${line ? `The statement ${line} ` : ''}reads ${JSON.stringify(name)}, but it is not declared in this scope`),
+        fix: `Define or import ${JSON.stringify(name)} before the code path uses it. Verify the spelling and module export instead of substituting an unrelated value.`,
+      };
+    }
+  }
+
+  if (trace.language === 'javascript' && trace.errorType === 'TypeError') {
+    const property = capture(trace.message, /Cannot read properties of (?:undefined|null) \(reading ['"]([^'"]+)['"]\)/)
+      ?? capture(trace.message, /Cannot set properties of (?:undefined|null) \(setting ['"]([^'"]+)['"]\)/);
+    if (property) {
+      const access = line ? /([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.([A-Za-z_$][\w$]*)/.exec(line) : null;
+      const receiver = access?.[1];
+      const propertyName = access?.[2] ?? property;
+      const expression = `${receiver ?? 'value'}.${propertyName}`;
+      return {
+        pointer: tracedPointer(trace, `The code reads ${JSON.stringify(propertyName)} from an undefined value${line ? ` in ${line}` : ''}`),
+        fix: `Guard the value before reading ${JSON.stringify(propertyName)}. ${receiver ? `For the expression ${line}, ` : 'The trace names the property but not its receiver; replace value with the receiver at this frame. '}Example:\n\`\`\`javascript\nif (${receiver ?? 'value'} == null) {\n  throw new Error(${JSON.stringify(`${propertyName} requires a value`)});\n}\nconst result = ${expression};\n\`\`\``,
+      };
+    }
+  }
+
+  return {};
 }
 
 function buildTemplateHints(trace: ParsedStackTrace, sourceSnippet?: string): HintSet {
   const template = TEMPLATES[templateKey(trace.language, trace.errorType)];
-  const missingKey = missingPythonKey(trace);
-  const keyLiteral = missingKey ? JSON.stringify(missingKey) : undefined;
-  const location = trace.relevantFrame
-    ? ` ${trace.relevantFrame.filePath}:${trace.relevantFrame.line}`
-    : '';
+  const specific = tailoredHint(trace);
+  const location = frameLocation(trace);
   const code = template?.code ?? '// Check the value and operation identified by the error before retrying.';
   const uncertainty = sourceSnippet?.trim()
     ? '\n\nThis is a general example, not a patch for the fetched file. Compare it with the source around the reported frame before applying changes.'
@@ -196,12 +369,9 @@ function buildTemplateHints(trace: ParsedStackTrace, sourceSnippet?: string): Hi
 
   return {
     nudge: template?.nudge ?? 'What assumption about the input, value, or program state could be false on this path?',
-    pointer: `${missingKey
-      ? `The mapping lookup for ${keyLiteral} failed because that key is absent from the current payload.`
-      : template?.pointer ?? `The ${trace.errorType} at this frame signals that an operation received an unexpected value or state.`}${location}`,
-    fix: `${missingKey
-      ? `The trace identifies ${keyLiteral} as missing. Validate this required field before converting it, or choose a documented default if it is optional. Example:\n\`\`\`python\nif ${keyLiteral} not in payload:\n    raise ValueError(${JSON.stringify(`Required field '${missingKey}' is missing`)})\nreturn int(payload[${keyLiteral}])\n\`\`\``
-      : template?.fix ?? `Check the operation that raised ${trace.errorType}, validate its inputs, and handle the failing case explicitly. Example:\n\`\`\`text\n${code}\n\`\`\``}${uncertainty}`,
+    pointer: specific.pointer
+      ?? `${template?.pointer ?? `The ${trace.errorType} at this frame signals that an operation received an unexpected value or state.`}${location ? ` Location: ${location}.` : ''}`,
+    fix: `${specific.fix ?? template?.fix ?? `Check the operation that raised ${trace.errorType}, validate its inputs, and handle the failing case explicitly. Example:\n\`\`\`text\n${code}\n\`\`\``}${uncertainty}`,
   };
 }
 
@@ -228,6 +398,7 @@ function createPrompt(trace: ParsedStackTrace, sourceSnippet?: string): string {
     language: trace.language,
     errorType: trace.errorType,
     message: trace.message,
+    sourceLine: trace.sourceLine ?? null,
     relevantFrame: frame ? { filePath: frame.filePath, line: frame.line, functionName: frame.functionName } : null,
     sourceSnippet: sourceSnippet?.slice(0, 10_000) ?? null,
   });
@@ -257,12 +428,14 @@ async function requestGemini(
 
   for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt += 1) {
     const remainingMs = remainingBudgetMs(deadlineAt, now);
-    if (remainingMs < MIN_REQUEST_START_WINDOW_MS) return { hints: null, reason: 'deadline-exceeded' };
+    if (remainingMs < MIN_REQUEST_START_WINDOW_MS) return { hints: null, reason: 'deadline_exceeded' };
     const attemptTimeoutMs = Math.min(timeoutMs, remainingMs);
     const controller = new AbortController();
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
     const timeout = new Promise<never>((_resolve, reject) => {
       timeoutId = setTimeout(() => {
+        timedOut = true;
         controller.abort();
         reject(new Error('Gemini request timed out.'));
       }, attemptTimeoutMs);
@@ -292,17 +465,17 @@ async function requestGemini(
       if (!response.ok) {
         if (isRetryableStatus(response.status)) {
           retryableFailure = true;
-          if (attempt === 1) return { hints: null, reason: response.status === 429 ? 'rate-limited' : 'request-failed' };
+          if (attempt === 1) return { hints: null, reason: response.status === 429 ? 'rate_limited' : `gemini_error: ${response.status}` };
         } else {
-          return { hints: null, reason: 'request-failed' };
+          return { hints: null, reason: `gemini_error: ${response.status}` };
         }
       } else {
         const hints = parseGeneratedHints(payload);
-        return hints ? { hints } : { hints: null, reason: 'invalid-response' };
+        return hints ? { hints } : { hints: null, reason: 'invalid_response' };
       }
     } catch {
       retryableFailure = true;
-      if (attempt === 1) return { hints: null, reason: 'request-failed' };
+      if (attempt === 1) return { hints: null, reason: timedOut ? 'timeout' : 'request_failed' };
     } finally {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
@@ -310,12 +483,19 @@ async function requestGemini(
     if (retryableFailure && attempt < GEMINI_MAX_ATTEMPTS - 1) {
       const timeLeft = remainingBudgetMs(deadlineAt, now);
       if (timeLeft < retryDelayMs + MIN_REQUEST_START_WINDOW_MS) {
-        return { hints: null, reason: 'deadline-exceeded' };
+        return { hints: null, reason: 'deadline_exceeded' };
       }
       if (retryDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
     }
   }
-  return { hints: null, reason: 'request-failed' };
+  return { hints: null, reason: 'request_failed' };
+}
+
+function templateResult(trace: ParsedStackTrace, sourceSnippet: string | undefined, reason: FallbackReason): HintResult {
+  // Keep this diagnostic deliberately small: never include the key, request,
+  // issue content, source code, or raw transport error in Forge logs.
+  console.log(`[CodeBuddy] hint_source=template fallback_reason=${reason}`);
+  return { ...buildTemplateHints(trace, sourceSnippet), source: 'template', fallbackReason: reason };
 }
 
 /** Return AI hints when available, otherwise use deterministic language/error templates. */
@@ -327,16 +507,12 @@ export async function generateHints(
   const now = options.now ?? Date.now;
   if (options.deadlineAt !== undefined
     && remainingBudgetMs(options.deadlineAt, now) < MIN_REQUEST_START_WINDOW_MS) {
-    return { ...buildTemplateHints(trace, sourceSnippet), source: 'template', fallbackReason: 'deadline-exceeded' };
+    return templateResult(trace, sourceSnippet, 'deadline_exceeded');
   }
   const apiKey = getApiKey(options.apiKey);
-  if (!apiKey) return { ...buildTemplateHints(trace, sourceSnippet), source: 'template', fallbackReason: 'no-api-key' };
+  if (!apiKey) return templateResult(trace, sourceSnippet, 'no_key');
 
   const generated = await requestGemini(trace, sourceSnippet, apiKey, options);
   if (generated.hints) return { ...generated.hints, source: 'ai' };
-  return {
-    ...buildTemplateHints(trace, sourceSnippet),
-    source: 'template',
-    fallbackReason: generated.reason ?? 'request-failed',
-  };
+  return templateResult(trace, sourceSnippet, generated.reason ?? 'request_failed');
 }

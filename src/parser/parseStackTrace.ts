@@ -15,6 +15,7 @@ export interface ParsedStackTrace {
   language: TraceLanguage;
   errorType: string;
   message: string;
+  sourceLine?: string;
   frames: StackFrame[];
   relevantFrame: StackFrame | null;
 }
@@ -156,6 +157,30 @@ function parseErrorLine(text: string): { errorType: string; message: string } | 
   return lastMatch;
 }
 
+/** Preserve Python's echoed source statement so fallbacks and Gemini can use
+ * the actual variable or key when Jira includes it after a traceback frame. */
+function parsePythonSourceLine(text: string): string | undefined {
+  const lines = text.split('\n');
+  for (let frameIndex = lines.length - 1; frameIndex >= 0; frameIndex -= 1) {
+    if (!/^\s*File\s+["'][^"']+["'],\s*line\s+\d+/.test(lines[frameIndex])) continue;
+    for (let lineIndex = frameIndex + 1; lineIndex < lines.length; lineIndex += 1) {
+      const candidate = lines[lineIndex].trim();
+      if (!candidate) continue;
+      if (
+        /^File\s+["'][^"']+["'],\s*line\s+\d+/.test(candidate)
+        || /^Traceback \(most recent call last\):/.test(candidate)
+        || /^During handling of the above exception/.test(candidate)
+        || /^The above exception was the direct cause/.test(candidate)
+        || ERROR_LINE.test(candidate)
+        || GENERIC_ERROR_LINE.test(candidate)
+        || /^\^+$/.test(candidate)
+      ) break;
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
 function isStackFrameLine(line: string): boolean {
   return (
     /^\s*File\s+["'][^"']+["'],\s*line\s+\d+/.test(line)
@@ -207,6 +232,7 @@ export function parseStackTrace(input: unknown): ParsedStackTrace | null {
   if (!parsedFrames) return null;
 
   const error = parseErrorLine(traceText);
+  const sourceLine = parsedFrames.language === 'python' ? parsePythonSourceLine(traceText) : undefined;
   // A frame-only paste is still actionable; name it generically instead of
   // discarding the useful location information.
   const errorType = error?.errorType ?? 'Error';
@@ -214,6 +240,7 @@ export function parseStackTrace(input: unknown): ParsedStackTrace | null {
     language: parsedFrames.language,
     errorType,
     message: error?.message ?? '',
+    ...(sourceLine ? { sourceLine } : {}),
     frames: parsedFrames.frames,
     relevantFrame: selectRelevantFrame(parsedFrames.language, parsedFrames.frames, traceText),
   };

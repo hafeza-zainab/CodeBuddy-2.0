@@ -146,6 +146,9 @@ const App = () => {
         </SectionMessage>
       )}
       <Text>Hint source: {hints.source === 'ai' ? 'Gemini' : 'template fallback'}.</Text>
+      {hints.source === 'template' && hints.fallbackReason ? (
+        <Text size="small" color="color.text.subtle">Fallback reason: {hints.fallbackReason}</Text>
+      ) : null}
       <Heading as="h4">1. Nudge</Heading>
       <Text>{hints.nudge}</Text>
       <Heading as="h4">2. Pointer</Heading>

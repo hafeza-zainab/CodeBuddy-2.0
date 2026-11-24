@@ -23,7 +23,7 @@ test('returns a useful template hint without making a request when no key is con
     fetcher: async () => { calls += 1; return response({}); },
   });
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'no-api-key');
+  assert.equal(result.fallbackReason, 'no_key');
   assert.match(result.nudge, /name/i);
   assert.match(result.pointer, /src\/app.py:9/);
   assert.match(result.fix, /user_name/);
@@ -56,11 +56,63 @@ test('tailors the Python KeyError fallback to the missing key in the trace', asy
   const result = await generateHints(trace, undefined, { apiKey: '' });
 
   assert.equal(result.source, 'template');
-  assert.match(result.pointer, /lookup for "count"/);
+  assert.match(result.pointer, /key "count" is missing from payload/);
   assert.match(result.fix, /if "count" not in payload:/);
   assert.match(result.fix, /Required field 'count' is missing/);
   assert.match(result.fix, /return int\(payload\["count"\]\)/);
   assert.doesNotMatch(result.fix, /email|user\.get/);
+});
+
+test('tailors fallback pointers and fixes to names from each supported error', async (t) => {
+  const cases = [
+    ['python', 'IndexError: list index out of range', 'items[index]', 'items', /items|index/],
+    ['python', "TypeError: unsupported operand type(s) for +: 'int' and 'str'", 'total + amount', 'amount', /total|amount/],
+    ['python', "AttributeError: 'NoneType' object has no attribute 'name'", 'return user.name', 'user.name', /user|name/],
+    ['python', "NameError: name 'user_id' is not defined", 'return user_id', 'user_id', /user_id/],
+    ['python', 'ZeroDivisionError: division by zero', 'ratio = total / divisor', 'divisor', /total|divisor/],
+    ['python', "ImportError: cannot import name 'parse_count' from 'helpers'", 'from helpers import parse_count', 'parse_count', /parse_count|helpers/],
+    ['java', 'java.lang.NullPointerException: Cannot invoke "User.getName()" because "user" is null', 'user', 'getName', /user|getName/],
+    ['javascript', 'ReferenceError: userContext is not defined', 'userContext', 'userContext', /userContext/],
+    ['javascript', "TypeError: Cannot read properties of undefined (reading 'profile')", 'profile', 'profile', /profile/],
+  ];
+
+  for (const [language, error, source, expectedFix, fixPattern] of cases) {
+    await t.test(`${language} ${error}`, async () => {
+      const text = language === 'python'
+        ? `Traceback (most recent call last):\n  File "src/example.py", line 17, in process\n    ${source}\n${error}`
+        : language === 'java'
+          ? `${error}\n\tat com.example.Service.process(Service.java:17)`
+          : `${error}\n    at process (/repo/src/example.js:17:4)`;
+      const trace = parseStackTrace(text);
+      assert.ok(trace);
+      const result = await generateHints(trace, undefined, { apiKey: '' });
+      assert.match(result.pointer, /17/);
+      assert.match(result.pointer, /process/);
+      assert.match(result.fix, fixPattern);
+      assert.ok(result.fix.includes(expectedFix));
+      assert.doesNotMatch(result.fix, /unknown@example\.test|email/);
+    });
+  }
+});
+
+test('reports a safe Gemini HTTP status and still calls Gemini without repository context', async () => {
+  let calls = 0;
+  const originalLog = console.log;
+  const logs = [];
+  console.log = (message) => logs.push(String(message));
+  try {
+    const result = await generateHints(sampleTrace(), undefined, {
+      apiKey: 'private-test-key',
+      fetcher: async () => { calls += 1; return response({}, 403); },
+    });
+    assert.equal(calls, 1);
+    assert.equal(result.source, 'template');
+    assert.equal(result.fallbackReason, 'gemini_error: 403');
+    assert.match(logs[0], /fallback_reason=gemini_error: 403/);
+    assert.doesNotMatch(logs.join(' '), /private-test-key/);
+  } finally {
+    console.log = originalLog;
+  }
 });
 
 test('uses a valid Gemini response and sends the encrypted key only as a request header', async () => {
@@ -109,7 +161,7 @@ test('retries a timed-out request once, then falls back without exposing transpo
   });
   assert.equal(calls, 2);
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'request-failed');
+  assert.equal(result.fallbackReason, 'timeout');
   assert.equal(JSON.stringify(result).includes('transport detail'), false);
 });
 
@@ -130,7 +182,7 @@ test('falls back before a slow Gemini response completes even if the transport i
 
   assert.equal(calls, 2);
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'request-failed');
+  assert.equal(result.fallbackReason, 'timeout');
 });
 
 test('skips Gemini and uses templates when the overall deadline has expired', async () => {
@@ -144,7 +196,7 @@ test('skips Gemini and uses templates when the overall deadline has expired', as
 
   assert.equal(calls, 0);
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'deadline-exceeded');
+  assert.equal(result.fallbackReason, 'deadline_exceeded');
 });
 
 test('falls back on malformed model output and tells the reader the example is generic', async () => {
@@ -153,6 +205,6 @@ test('falls back on malformed model output and tells the reader the example is g
     fetcher: async () => response({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }),
   });
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'invalid-response');
+  assert.equal(result.fallbackReason, 'invalid_response');
   assert.match(result.fix, /general example/);
 });

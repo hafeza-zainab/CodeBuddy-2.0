@@ -108,6 +108,11 @@ test('uses the deepest Java cause as the reported error', () => {
   assert.equal(parsed?.message, 'timeout');
 });
 
+test('preserves the source statement echoed below a Python frame', () => {
+  const parsed = parseStackTrace('Traceback (most recent call last):\n  File "src/buggy_app.py", line 42, in handle_request\n    return int(payload["count"])\nKeyError: \'count\'');
+  assert.equal(parsed?.sourceLine, 'return int(payload["count"])');
+});
+
 test('skips framework-only frames without losing the trace', () => {
   const parsed = parseStackTrace('TypeError: x\n at render (/app/node_modules/ui/index.js:2:1)');
   assert.ok(parsed);
