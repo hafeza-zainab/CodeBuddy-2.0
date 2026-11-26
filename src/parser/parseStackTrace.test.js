@@ -126,6 +126,27 @@ test('parses a minified JavaScript frame with a large generated column number', 
   assert.equal(parsed?.relevantFrame?.line, 1);
 });
 
+test('parses TypeScript source maps and Windows drive paths', () => {
+  const parsed = parseStackTrace('TypeError: invalid result\n    at parseResult (C:\\work\\service\\src\\parseResult.ts:88:17)');
+  assert.equal(parsed?.language, 'javascript');
+  assert.equal(parsed?.relevantFrame?.filePath, 'C:\\work\\service\\src\\parseResult.ts');
+  assert.equal(parsed?.relevantFrame?.line, 88);
+  assert.equal(parsed?.relevantFrame?.functionName, 'parseResult');
+});
+
+test('parses a minified trace when issue text contains a very long generated source line', () => {
+  const minifiedLine = `const payload=${'x'.repeat(120_000)};throw new TypeError("bad")`;
+  const parsed = parseStackTrace(`TypeError: bad\n${minifiedLine}\n    at t (https://cdn.example.test/app.min.js:1:120001)`);
+  assert.equal(parsed?.language, 'javascript');
+  assert.equal(parsed?.relevantFrame?.filePath, 'https://cdn.example.test/app.min.js');
+  assert.equal(parsed?.relevantFrame?.line, 1);
+});
+
+test('returns null without throwing for huge text that has no recognizable frames', () => {
+  const noisyText = `Descripción sin traceback.\n${'plain text '.repeat(100_000)}`;
+  assert.doesNotThrow(() => assert.equal(parseStackTrace(noisyText), null));
+});
+
 test('keeps the error and frame from the latest complete trace in an issue with multiple traces', () => {
   const parsed = parseStackTrace([
     'First console report:',
