@@ -1,7 +1,7 @@
 import type { ParsedStackTrace, TraceLanguage } from '../parser/parseStackTrace';
 import {
   GEMINI_MAX_ATTEMPTS,
-  GEMINI_MODEL_CHAIN,
+  configuredGeminiModels,
   GEMINI_REQUEST_TIMEOUT_MS,
   GEMINI_RETRY_DELAY_MS,
   GEMINI_STAGE_BUDGET_MS,
@@ -249,7 +249,8 @@ function sanitizeText(value: string): string {
     .replace(/__([^_\n]+)__/g, '$1')
     .replace(/(?<!\w)\*([^*\n]+)\*(?!\w)/g, '$1')
     .replace(/(?<!\w)_([^_\n]+)_(?!\w)/g, '$1')
-    .replace(/\*\*|__/g, '')
+    .replace(/\*\*|__|`/g, '')
+    .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, '')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
@@ -531,7 +532,7 @@ async function requestGemini(
   const fetcher = options.fetcher ?? fetch;
   const timeoutMs = options.timeoutMs ?? GEMINI_REQUEST_TIMEOUT_MS;
   const retryDelayMs = options.retryDelayMs ?? GEMINI_RETRY_DELAY_MS;
-  const models: readonly string[] = options.model ? [options.model] : GEMINI_MODEL_CHAIN;
+  const models: readonly string[] = options.model ? [options.model] : configuredGeminiModels();
   const now = options.now ?? Date.now;
   const deadlineAt = Math.min(
     options.deadlineAt ?? Number.POSITIVE_INFINITY,
@@ -590,7 +591,11 @@ async function requestGemini(
         }
       } else {
         const hints = parseGeneratedHints(payload);
-        return hints ? { hints, model } : { hints: null, reason: 'bad_ai_output' };
+        if (hints) {
+          console.log(`[CodeBuddy] hint_source=ai model=${model}`);
+          return { hints, model };
+        }
+        failures.push(`${model}: bad_ai_output`);
       }
     } catch {
       failures.push(`${model}: ${timedOut ? 'timeout' : 'request_failed'}`);

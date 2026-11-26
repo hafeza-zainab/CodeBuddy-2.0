@@ -230,6 +230,23 @@ test('sanitizes Markdown from every model prose field while preserving multiline
   assert.doesNotMatch(`${result.nudge} ${result.pointer} ${result.fixExplanation}`, /[*#`]/);
 });
 
+test('removes bullet markers and literal Markdown characters from AI hint levels', async () => {
+  const result = await generateHints(sampleTrace(), undefined, {
+    apiKey: 'test-key',
+    fetcher: async () => generatedResponse({
+      nudge: '**Question**: is `payload` ready?',
+      pointer: '### Cause\n- The key is missing.\n* Check the value.',
+      fix_explanation: '1. Validate **count** first.\n- Then convert it.',
+      fix_code: 'payload.get("count")',
+      fix_language: 'python',
+    }),
+  });
+  assert.equal(result.nudge, 'Question: is payload ready?');
+  assert.equal(result.pointer, 'Cause\nThe key is missing.\nCheck the value.');
+  assert.equal(result.fixExplanation, 'Validate count first.\nThen convert it.');
+  assert.equal(result.fixCode, 'payload.get("count")');
+});
+
 test('leniently extracts the first JSON object from surrounding model text', async () => {
   const fields = generatedHints({ nudge: 'Nudge from JSON.' });
   const result = await generateHints(sampleTrace(), undefined, {
@@ -246,7 +263,7 @@ test('uses the template fallback with bad_ai_output when structured fields are m
     fetcher: async () => response({ candidates: [{ content: { parts: [{ text: '{"nudge":"Question?","pointer":"src/app.py:9"}' }] } }] }),
   });
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'bad_ai_output');
+  assert.match(result.fallbackReason, /^gemini-3\.1-flash-lite: bad_ai_output/);
   assert.ok(result.fixExplanation);
   assert.ok(result.fixCode);
 });
@@ -325,6 +342,6 @@ test('falls back on malformed model output and tells the reader the example is g
     fetcher: async () => response({ candidates: [{ content: { parts: [{ text: 'not json' }] } }] }),
   });
   assert.equal(result.source, 'template');
-  assert.equal(result.fallbackReason, 'bad_ai_output');
+  assert.match(result.fallbackReason, /^gemini-3\.1-flash-lite: bad_ai_output/);
   assert.match(result.fix, /general example/);
 });

@@ -6,6 +6,7 @@ import {
   FORGE_SYNCHRONOUS_RUNTIME_LIMIT_MS,
   GEMINI_MAX_ATTEMPTS,
   GEMINI_MODEL_CHAIN,
+  configuredGeminiModels,
   GEMINI_REQUEST_TIMEOUT_MS,
   GEMINI_RETRY_DELAY_MS,
   GEMINI_STAGE_BUDGET_MS,
@@ -30,6 +31,8 @@ test('named Jira, GitHub, and Gemini phase budgets fit inside the synchronous Fo
   assert.equal(GITHUB_MAX_ATTEMPTS, 2);
   assert.equal(GEMINI_MAX_ATTEMPTS, 3);
   assert.deepEqual(GEMINI_MODEL_CHAIN, ['gemini-3.1-flash-lite', 'gemini-3.5-flash-lite', 'gemini-3.8-flash']);
+  assert.deepEqual(configuredGeminiModels('gemini-3.5-flash-lite, gemini-3.1-flash-lite'), ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite']);
+  assert.deepEqual(configuredGeminiModels('unknown-model'), [...GEMINI_MODEL_CHAIN]);
   assert.equal(JIRA_REQUEST_TIMEOUT_MS, 2_500);
   assert.equal(GITHUB_REQUEST_TIMEOUT_MS, 2_500);
   assert.ok(GEMINI_REQUEST_TIMEOUT_MS * GEMINI_MAX_ATTEMPTS + GEMINI_RETRY_DELAY_MS * (GEMINI_MAX_ATTEMPTS - 1) <= GEMINI_STAGE_BUDGET_MS);

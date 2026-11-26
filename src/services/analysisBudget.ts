@@ -29,6 +29,14 @@ export const GEMINI_MODEL_CHAIN = [
   'gemini-3.5-flash-lite',
   'gemini-3.8-flash',
 ] as const;
+/** Allow operators to select and order only the model IDs already reviewed here. */
+export function configuredGeminiModels(
+  value: string | undefined = (globalThis as typeof globalThis & { process?: { env?: Record<string, string | undefined> } }).process?.env?.GEMINI_MODELS,
+): string[] {
+  const allowed = new Set<string>(GEMINI_MODEL_CHAIN);
+  const configured = value?.split(',').map((model) => model.trim()).filter((model) => allowed.has(model)) ?? [];
+  return [...new Set(configured.length ? configured : GEMINI_MODEL_CHAIN)];
+}
 export const GEMINI_REQUEST_TIMEOUT_MS = 2_200;
 export const GEMINI_MAX_ATTEMPTS = GEMINI_MODEL_CHAIN.length;
 export const GEMINI_RETRY_DELAY_MS = 350;
