@@ -1,64 +1,31 @@
 # CodeBuddy 2.0 — submission material
 
-## Devpost-ready description
+## Devpost description
 
-CodeBuddy 2.0 brings stack-trace tutoring into Jira. Open an issue panel on an issue containing a Python, JavaScript/TypeScript, or Java error and get three progressive hints: a nudge to guide your reasoning, a pointer to the relevant file and line, and a concrete full fix. When the issue links a public GitHub repository, CodeBuddy can fetch a small source window around the selected frame to ground the explanation. Gemini can improve the hints when configured; bounded requests and deterministic templates keep the experience useful when Gemini is unavailable or rate-limited. A Rovo agent can analyze the current issue, an issue key, or a pasted trace through the same reusable action.
+CodeBuddy 2.0 is a Jira issue panel for understanding Python, JavaScript/TypeScript, and Java stack traces. It reads an issue description and comments, selects an application frame, and presents three progressive hint levels: **Nudge** prompts the developer to reason about the failure, **Pointer** names the likely cause and frame, and **Full fix** provides an explanation and code example. If an issue contains a public GitHub repository link, the app tries to load the relevant source file and a small line window around the frame. Gemini can produce structured hints when configured; deterministic templates keep the analysis useful when Gemini is unavailable or returns unusable output.
 
-The app is intended to help developers understand and investigate errors, not to claim that a suggested fix is guaranteed correct. Source and model availability are reported by the app.
+The panel and the CodeBuddy 2.0 Rovo agent call the same analysis flow. A hint is guidance, not a guaranteed patch: templates are examples, and AI output depends on the trace and available source context.
 
 ## How the Forge requirement is met
 
-CodeBuddy 2.0 is implemented as an Atlassian Forge app, declared in `manifest.yml` and installed into Jira Cloud. Its issue panel is rendered with Forge UI Kit (`@forge/react`), Jira data is accessed through the Forge bridge, and analysis runs through Forge resolver functions. The optional Rovo agent and reusable action are Forge modules as well. Gemini and GitHub requests are made from the Forge backend under the manifest's explicit egress allowlist; the app does not rely on a separately hosted web service.
+This project is an installable Forge app declared in `manifest.yml`. Jira issue data is read as the current user through Forge Bridge, analysis runs in Forge resolver functions, and the interface uses Forge UI Kit. The manifest also declares a Rovo agent and reusable action. External requests run from the Forge backend and are restricted to Gemini and GitHub egress hosts; there is no separately hosted app server.
 
 ## Category and bonus prize
 
-**Apps for Software Teams:** CodeBuddy places stack-trace triage alongside the Jira issue where a software team reports and discusses a bug. It helps teammates move from an error message toward relevant source and a reasoned correction.
+**Apps for Software Teams:** CodeBuddy puts stack-trace interpretation beside the Jira issue where a team reports a software defect. It helps a developer move from an error message to the relevant frame and a reasoned next step.
 
-**Best Agents:** The CodeBuddy 2.0 Rovo agent is paired with a reusable Forge action that invokes the same analyzer as the issue panel. Its instructions explain the nudge, pointer, and full-fix levels, request a trace or issue when context is missing, and tell it not to invent project-specific details. Rovo availability and behavior still depend on the target site's capabilities and must be confirmed there.
+**Best Agents:** The manifest declares a CodeBuddy 2.0 Rovo agent that can call a reusable action. The action accepts a Jira issue key or pasted trace and delegates to the panel's shared analyzer, so both surfaces use the same parser, optional public-source lookup, and three hint levels. A site's Rovo availability and permissions must be confirmed by the judge; this repository cannot establish those tenant settings.
 
-## Judge setup (under 10 minutes with prerequisites ready)
+## Judge setup
 
-Prerequisites: Node.js 24, npm, Forge CLI authenticated to an Atlassian account, and a Jira Cloud site where that account can install apps. A Gemini key is optional; the template fallback works without it. Allow around 5–8 minutes if the prerequisites and site are already available.
+Prerequisites: Node.js 24, npm, Forge CLI, a Jira Cloud site where you can install Forge apps, and app-owner access if deploying this repository. Gemini is optional; templates work without it. An install link is available only after the app owner enables sharing in Developer Console.
 
-1. Clone the repository and enter it:
-
-   ```powershell
-   git clone https://github.com/hafeza-zainab/CodeBuddy-2.0.git
-   cd CodeBuddy-2.0
-   ```
-
-2. Install dependencies and run the local checks:
-
-   ```powershell
-   npm ci
-   npm run lint
-   npm run build
-   npm test
-   forge lint
-   ```
-
-3. Deploy and install the development environment (substitute your Jira site URL):
-
-   ```powershell
-   forge deploy --non-interactive --e development
-   forge install --non-interactive --site YOUR-SITE.atlassian.net --product jira --environment development
-   ```
-
-4. Open a Jira issue in the new issue view as a user who can edit it. Use the issue's `•••` menu to open **CodeBuddy 2.0**; the panel opens above Activity. Provide a real trace in the issue description or comments. A public GitHub repository link is optional. If a Gemini key is configured in the development environment, it is used; otherwise the deterministic template hints are returned.
-
-5. If the site exposes Rovo agents, open the CodeBuddy 2.0 agent and provide the issue key or paste a trace. Rovo support and access can vary by site and plan.
-
-## Demo video script (about 4 minutes; maximum 4:30)
-
-Use a Jira issue with a real, non-sensitive stack trace and, if available, a public repository link. Do not show secrets or personal data. Use voice narration or silence; do not add copyrighted music.
-
-- **0:00–0:25 — Introduce the problem.** Show the Jira issue and explain that stack traces can be difficult to interpret when you are learning a codebase.
-- **0:25–0:55 — Open the app.** Open CodeBuddy 2.0 from the issue menu and show the detected language/error and repository-context status.
-- **0:55–2:25 — Walk through the hints.** Read the nudge as a reasoning prompt, the pointer as the location and likely mistake, and the full fix as a concrete correction. Show whether the response source is Gemini or templates. If GitHub context is absent, explain the visible status rather than implying source was fetched.
-- **2:25–2:55 — Show a missing-input state.** Open a Jira issue with no supported stack trace and show the app's no-trace message. Do not imply that the panel can infer a trace that is not present.
-- **2:55–3:45 — Show the Rovo experience, if available.** Ask the CodeBuddy 2.0 agent to analyze an issue or paste the same kind of trace. Show how it presents the three levels and asks for input when needed. If the site's Rovo capability is unavailable, use this time to explain the reusable action based on the shipped manifest and code, without presenting an unrun interaction as live.
-- **3:45–4:10 — Close.** Summarize that CodeBuddy connects issue context, optional public source context, and progressive hints in a Forge app. Leave the remaining time for a short end card; total runtime must stay below 4:30.
+1. Use the install link supplied by the app owner: **[CodeBuddy 2.0 install link — owner to add]**. Select a Jira site and approve the displayed permissions. If there is no install link, ask the app owner to enable the correct sharing level and provide it.
+2. For a source checkout, run `npm ci`, `npm run lint`, `npm run build`, `npm test`, then authenticate with Forge and follow [docs/DEPLOY.md](DEPLOY.md) to deploy/install your own environment.
+3. Add a Python, JavaScript/TypeScript, or Java stack trace to a Jira issue description or comment. For repository context, include a public GitHub repository link in that issue text; frame file paths must correspond to a file in that repository.
+4. Open the issue in Jira's new issue view. Use the issue's **•••** menu to open **CodeBuddy 2.0**; the panel appears above Activity. Review the three labeled hints and repository/hint source notes.
+5. To try Rovo, open the Rovo agent picker and choose **CodeBuddy 2.0**. Provide an issue key or paste a trace. If the agent is absent, that site's Rovo availability or installation must be checked.
 
 ## Reused ideas vs new code
 
-The read-only [old CodeBuddy reference](../codebuddy-reference) informed the progressive hint levels, the preference for grounded explanations, and loading only relevant repository source. CodeBuddy 2.0 reimplements those ideas in TypeScript for Forge; it does not copy the Python/Streamlit implementation. The Jira panel, resolver and Rovo integrations, cross-language parser, GitHub loader, fallback catalog, permission model, and UI are new code in this repository.
+The read-only [old CodeBuddy reference](../codebuddy-reference) informed the staged hint levels, grounded explanations, and loading only relevant repository source. This app reimplements those ideas in TypeScript for Forge; it does not copy the Python/Streamlit code. The Jira panel, resolver flow, parser, GitHub API client, Gemini structured-output client, deterministic templates, Rovo integration, permission model, and UI are new code in this repository.
