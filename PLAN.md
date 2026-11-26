@@ -16,4 +16,15 @@
 - [x] **6. Loading, error and “no stack trace found” states**
   - Acceptance criteria: panel clearly handles loading, resolver/GitHub/Gemini failures, and missing traces while still showing useful template fallback output when possible.
 - [x] **7. Setup, testing and demo-script docs**
-  - Acceptance criteria: README lets a stranger set up and validate the app in under 10 minutes; includes “Reused ideas vs new code” crediting the old CodeBuddy, explains how the Forge requirement is met, and contains a real-input Jira demo script under five minutes. `docs/SUBMISSION.md` provides Devpost-ready description, category/Best Agents rationale, judge setup, and a sub-4:30 real-input Jira video script; `docs/PRODUCTION.md` documents production deploy, encrypted Gemini setup, install-link creation, second-account verification, and least permissions. No secrets are documented or committed.
+  - Acceptance criteria: README lets a stranger set up and validate the app in under 10 minutes; includes “Reused ideas vs new code” crediting the old CodeBuddy, explains how the Forge requirement is met, and contains a real-input Jira demo script under five minutes. `docs/SUBMISSION.md` provides Devpost-ready description, category/Best Agents rationale, judge setup, and a sub-4:30 real-input Jira video script; `docs/DEPLOY.md` documents production deploy, encrypted Gemini setup, install-link creation, second-account verification, and least permissions. No secrets are documented or committed.
+
+## Follow-up hardening requested 2026-11-26
+
+- [x] **1. Hint engine hardening** — `GEMINI_MODELS` selects/orders only reviewed default IDs; invalid structured output advances to the next model; diagnostics omit secrets; prose sanitizer strips Markdown markers while code remains separate. Tests cover configuration and tricky model output.
+- [x] **2. Parser coverage** — tests cover Python/JS/TS/Java frames, chained causes, ADF code/plain text/comments, Windows paths, very long/minified input, and clean null for unrecognized text.
+- [x] **3. GitHub context** — mocked tests cover public-repo success, ADF/smart-link preservation, trailing slash, `.git`, tree/blob branch URLs, 404/403/rate limits, safe oversized-prefix truncation, and trace-only hints without usable context.
+- [x] **4. Panel states** — loading, no-trace, friendly read error, repository unavailable, template fallback, success, and three labeled hint levels are present; raw resolver errors are not rendered.
+- [x] **5. Rovo** — prompt requests issue/trace input when missing and describes all three levels; action tests cover valid issue, no trace, bad repo, and Gemini fallback.
+- [x] **6. Scope review** — `docs/SECURITY.md` justifies the only Jira scope and both backend egress hosts; no new scopes or cache added.
+- [x] **7. Docs** — README, submission, demo, manual test checklist, and deployment docs updated to match implementation and limitations.
+- [x] **8. Final checks and push** — `npm test` (107 passed), `npx tsc --noEmit`, `npm run lint`, and `npm run build` pass. Forge lint was attempted but produced no output and stalled in this shell; see `BLOCKERS.md`. All commits are being pushed to `origin/main` at the end of this session.
