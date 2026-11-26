@@ -76,7 +76,7 @@ const App = () => {
       <Stack space="space.200">
         <Heading as="h3">CodeBuddy 2.0</Heading>
         <SectionMessage appearance="error" title="Could not analyze this issue">
-          <Text>{view.message}</Text>
+          <Text>CodeBuddy could not read this Jira issue. Check that you can view the issue, then reload the panel.</Text>
         </SectionMessage>
       </Stack>
     );
