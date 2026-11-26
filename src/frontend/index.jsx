@@ -112,10 +112,10 @@ const App = () => {
         </SectionMessage>
       ) : null}
       {github.status === 'ok' ? (
-        <Text>Using {github.filePath} lines {github.startLine}–{github.endLine} from the linked public repository.</Text>
+        <Text>Using {github.filePath} lines {github.startLine}–{github.endLine} from the linked public repository.{github.truncated ? ' The file was safely truncated to stay within the size limit.' : ''}</Text>
       ) : (
         <SectionMessage appearance="information" title="Repository context unavailable">
-          <Text>{github.message} The hint templates still work without repository context.</Text>
+          <Text>{github.message} Hints are still generated from the stack trace.</Text>
         </SectionMessage>
       )}
       <Text>Hint source: {hints.source === 'ai' ? `AI (${hints.model ?? 'Gemini'})` : 'template fallback'}.</Text>

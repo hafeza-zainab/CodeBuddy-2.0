@@ -29,6 +29,7 @@ export interface GithubContextResult {
   snippet?: string;
   startLine?: number;
   endLine?: number;
+  truncated?: boolean;
 }
 
 export interface GithubContextOptions {
@@ -82,13 +83,15 @@ const WINDOW_LINES = 60;
 /** Find the first GitHub repository URL embedded anywhere in issue text. */
 export function findGithubRepository(issueText: unknown): RepoReference | null {
   if (typeof issueText !== 'string') return null;
-  const pattern = /https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)(?:\/tree\/([^/\s?#]+)(?:\/([^\s?#]*))?)?/gi;
+  const pattern = /https?:\/\/(?:www\.)?github\.com\/([^/\s?#]+)\/([^/\s?#]+)(?:\/([^\s?#]*))?/gi;
   const match = pattern.exec(issueText);
   if (!match) return null;
 
   const owner = match[1];
   const repo = match[2].replace(/\.git$/i, '').replace(/[),.;!]+$/g, '');
-  const branch = match[3];
+  const tail = (match[3] ?? '').replace(/[),.;!]+$/g, '').replace(/\/+$/, '');
+  const route = /^(?:tree|blob)\/([^/]+)(?:\/.*)?$/i.exec(tail);
+  const branch = route?.[1];
   if (!/^[A-Za-z0-9_.-]+$/.test(owner) || !/^[A-Za-z0-9_.-]+$/.test(repo) || repo === '.' || repo === '..') {
     return null;
   }
@@ -198,11 +201,17 @@ async function fetchJson<T>(fetcher: typeof fetch, url: string, budget: GithubRe
   return null;
 }
 
-function decodeBase64(content: string): string | null {
+function decodeBase64(content: string, maxBytes = Number.POSITIVE_INFINITY): string | null {
   try {
-    const binary = atob(content.replace(/\s/g, ''));
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    const normalized = content.replace(/\s/g, '');
+    // Limit base64 decoding work for oversized repository files. A complete
+    // four-character group represents at most three UTF-8 bytes.
+    const bounded = Number.isFinite(maxBytes)
+      ? normalized.slice(0, Math.ceil(maxBytes / 3) * 4)
+      : normalized;
+    const binary = atob(bounded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0)).slice(0, maxBytes);
+    return new TextDecoder('utf-8', { fatal: !Number.isFinite(maxBytes) }).decode(bytes);
   } catch {
     return null;
   }
@@ -242,7 +251,7 @@ async function fetchContents(
   ref: string | undefined,
   maxBytes: number,
   budget: GithubRequestBudget,
-): Promise<{ source?: string; status?: GithubContextStatus }> {
+): Promise<{ source?: string; status?: GithubContextStatus; truncated?: boolean }> {
   const query = ref ? `?ref=${encodeURIComponent(ref)}` : '';
   const url = `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodePath(path)}${query}`;
   const apiResponse = await fetchJson<ContentsPayload>(fetcher, url, budget);
@@ -253,11 +262,14 @@ async function fetchContents(
   if (payload?.type !== 'file' || typeof payload.content !== 'string' || payload.encoding !== 'base64') {
     return { status: 'request-failed' };
   }
-  if (typeof payload.size === 'number' && payload.size > maxBytes) return { status: 'file-too-large' };
-  const source = decodeBase64(payload.content);
+  const oversized = typeof payload.size === 'number' && payload.size > maxBytes;
+  const source = decodeBase64(payload.content, oversized ? maxBytes : Number.POSITIVE_INFINITY);
   if (source === null) return { status: 'request-failed' };
   if (new TextEncoder().encode(source).byteLength > maxBytes) return { status: 'file-too-large' };
-  return { source };
+  if (!oversized) return { source };
+  const lastCompleteLine = source.lastIndexOf('\n');
+  if (lastCompleteLine < 0) return { status: 'file-too-large' };
+  return { source: source.slice(0, lastCompleteLine), truncated: true };
 }
 
 /**
@@ -292,6 +304,7 @@ export async function loadGithubContext(
   const firstPath = normalizePath(frame.filePath);
   const initial = await fetchContents(fetcher, repository.owner, repository.repo, firstPath, repository.branch, maxBytes, budget);
   let source = initial.source;
+  let truncated = initial.truncated ?? false;
   let selectedPath = firstPath;
 
   if (initial.status === 'private-or-not-found') {
@@ -328,14 +341,19 @@ export async function loadGithubContext(
     const retry = await fetchContents(fetcher, repository.owner, repository.repo, selectedPath, branch, maxBytes, budget);
     if (!retry.source) return result(retry.status ?? 'request-failed', { repoUrl: repository.url, filePath: selectedPath });
     source = retry.source;
+    truncated = retry.truncated ?? false;
   } else if (!source) {
     return result(initial.status ?? 'request-failed', { repoUrl: repository.url });
   }
 
+  if (truncated && frame.line > source.split(/\r?\n/).length) {
+    return result('file-too-large', { repoUrl: repository.url, filePath: selectedPath });
+  }
   const trimmed = trimSource(source, frame.line, windowLines);
   return result('ok', {
     repoUrl: repository.url,
     filePath: selectedPath,
     ...trimmed,
+    ...(truncated ? { truncated: true } : {}),
   });
 }

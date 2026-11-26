@@ -25,6 +25,12 @@ test('finds a public repository link inside issue text and normalizes .git', () 
   assert.equal(findGithubRepository('No link here'), null);
 });
 
+test('normalizes trailing slashes and extracts branch from tree and blob URLs', () => {
+  assert.equal(findGithubRepository('https://github.com/acme/demo.git/').repo, 'demo');
+  assert.equal(findGithubRepository('https://github.com/acme/demo/tree/release-2/src/app.js').branch, 'release-2');
+  assert.equal(findGithubRepository('https://github.com/acme/demo/blob/fix-branch/src/app.py').branch, 'fix-branch');
+});
+
 test('returns a clear no-repository status without making an HTTP request', async () => {
   let calls = 0;
   const result = await loadGithubContext('No repo link.', frame, { fetcher: async () => { calls += 1; return jsonResponse({}); } });
@@ -114,6 +120,31 @@ test('rejects source files over the configured cap before decoding', async () =>
     fetcher: async () => jsonResponse({ type: 'file', size: 21, encoding: 'base64', content: '' }),
   });
   assert.equal(result.status, 'file-too-large');
+});
+
+test('safely truncates an oversized source file when the selected frame is in the retained prefix', async () => {
+  const source = 'line one\nline two\nline three\nline four\n';
+  const result = await loadGithubContext('https://github.com/acme/demo/', { ...frame, line: 2 }, {
+    maxFileBytes: 22,
+    windowLines: 10,
+    fetcher: async () => jsonResponse(contents(source)),
+  });
+  assert.equal(result.status, 'ok');
+  assert.equal(result.truncated, true);
+  assert.match(result.snippet, /line two/);
+  assert.doesNotMatch(result.snippet, /line four/);
+});
+
+test('handles a branch/blob URL and trailing slash in the mocked public repo happy path', async () => {
+  let requested;
+  const result = await loadGithubContext('Source: https://github.com/acme/demo/blob/release-2/src/app.js/', frame, {
+    fetcher: async (url) => {
+      requested = url;
+      return jsonResponse(contents('source line', 'src/app.js'));
+    },
+  });
+  assert.equal(result.status, 'ok');
+  assert.match(requested, /\?ref=release-2$/);
 });
 
 test('reports rate limits, forbidden requests, and network errors without throwing', async () => {
